@@ -1,0 +1,29 @@
+shelly-control
+Copyright 2026 Yornik Heyl
+
+The rules (a negative price, a morning hour, a switch-on and a switch-off line
+as factors of the day's average, otherwise keep) come from the owner's own
+cron script for the same boiler. The default factors come from replaying that
+script's relay log against the real prices of the same days.
+
+The Shelly client (shelly_control/shelly.py), its send-time allowlist check,
+the fake device in tests/ and the CI guard are adapted from shelly-bridge
+(https://github.com/Yornik/shelly-bridge), by the same author, under the MIT
+License. The RPC methods, reply fields and the authentication scheme come from
+Shelly's public Gen2 API documentation (https://shelly-api-docs.shelly.cloud/gen2/).
+The price list format comes from tibber-exporter
+(https://github.com/Yornik/tibber-exporter). No code was copied from Shelly's
+documentation. The prices in tests/fixtures/ are public electricity prices of
+20 to 24 October 2026, without any account or home identifier; every other
+test value is made up.
+
+This product includes the font Atkinson Hyperlegible Next
+(shelly_control/static/fonts/), Copyright 2020-2024 The Atkinson Hyperlegible
+Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next),
+licensed under the SIL Open Font License, Version 1.1, without a Reserved Font
+Name. See shelly_control/static/fonts/OFL.txt.
+
+This is an independent, unofficial project, not made, endorsed or supported by
+Shelly Group SE or by Tibber. Shelly and related names and logos are trademarks
+of Shelly Group SE; Tibber is a trademark of its owner. They are used only to
+identify the device and the price source this software works with.

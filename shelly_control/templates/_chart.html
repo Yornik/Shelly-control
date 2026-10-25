@@ -1,0 +1,116 @@
+{#- One day's chart. Every value comes from chart.ChartModel; no style attributes. -#}
+{% macro day_chart(c, key=none) -%}
+<figure class="chart" aria-labelledby="cap-{{ c.id }}">
+  <figcaption id="cap-{{ c.id }}">{{ c.title }}</figcaption>
+  <div class="plotgrid">
+    <div class="plotwrap" role="group" aria-roledescription="chart" aria-label="{{ c.aria }}" tabindex="0" data-span="{{ c.span }}" data-start="{{ c.start_hit }}">
+      <svg class="viz" width="100%" height="{{ c.total_h }}" aria-hidden="true">
+        {%- for x, width in c.nodata %}
+        <rect class="nodata" x="{{ x }}" width="{{ width }}" y="{{ c.top }}" height="{{ c.rail_y + c.rail_h - c.top }}"/>
+        {%- endfor %}
+        <svg y="{{ c.top }}" width="100%" height="{{ c.plot_h }}" viewBox="0 0 {{ c.span }} {{ c.plot_h }}" preserveAspectRatio="none">
+          {%- for g in c.grid %}
+          <line class="{{ g.cls }}" x1="0" x2="{{ c.span }}" y1="{{ g.y }}" y2="{{ g.y }}"/>
+          {%- endfor %}
+          {%- if c.band %}
+          <rect class="band" x="0" width="{{ c.span }}" y="{{ c.band[0] }}" height="{{ c.band[1] }}"/>
+          {%- endif %}
+          {%- if c.morning %}
+          <line class="mwin" x1="{{ c.morning.x }}" x2="{{ c.morning.x }}" y1="0" y2="{{ c.plot_h }}"/>
+          <line class="mwin" x1="{{ c.morning.x + c.morning.width }}" x2="{{ c.morning.x + c.morning.width }}" y1="0" y2="{{ c.plot_h }}"/>
+          {%- endif %}
+          {%- for m in c.marks %}
+          <line class="{{ m.cls }}" x1="0" x2="{{ c.span }}" y1="{{ m.y }}" y2="{{ m.y }}"/>
+          {%- endfor %}
+          {%- if c.morning_line %}
+          <line class="th th-morning" x1="{{ c.morning_line[0] }}" x2="{{ c.morning_line[1] }}" y1="{{ c.morning_line[2] }}" y2="{{ c.morning_line[2] }}"/>
+          {%- endif %}
+          {%- if c.past %}
+          <rect class="past" x="0" width="{{ c.past }}" y="0" height="{{ c.plot_h }}"/>
+          {%- endif %}
+          {%- if c.path %}
+          <path class="price" d="{{ c.path }}"/>
+          {%- endif %}
+        </svg>
+        <svg y="{{ c.rail_y }}" width="100%" height="{{ c.rail_h }}" viewBox="0 0 {{ c.span }} {{ c.rail_h }}" preserveAspectRatio="none">
+          {%- for p in c.pins %}
+          <rect class="{{ p.cls }}" x="{{ p.x }}" width="{{ p.width }}" y="{{ p.y }}" height="{{ p.height }}"/>
+          {%- endfor %}
+        </svg>
+        {%- if c.now_x %}
+        <line class="now" x1="{{ c.now_x }}" x2="{{ c.now_x }}" y1="{{ c.top - 4 }}" y2="{{ c.rail_y + c.rail_h }}"/>
+        <text class="nowlabel" x="{{ c.now_x }}" y="{{ c.top - 8 }}" text-anchor="middle">now</text>
+        {%- endif %}
+        {%- for l in c.nodata_labels %}
+        <text class="{{ l.cls }}" x="{{ l.x }}" y="{{ l.y }}" text-anchor="{{ l.anchor }}">{{ l.text }}</text>
+        {%- endfor %}
+        {%- for l in c.labels %}
+        <text class="{{ l.cls }}" x="{{ l.x }}" y="{{ l.y }}" text-anchor="{{ l.anchor }}">{{ l.text }}</text>
+        {%- endfor %}
+        <line class="cross" x1="0" x2="0" y1="{{ c.top }}" y2="{{ c.rail_y + c.rail_h }}" visibility="hidden"/>
+        <svg class="hits" y="{{ c.top }}" width="100%" height="{{ c.hit_h }}" viewBox="0 0 {{ c.span }} {{ c.hit_h }}" preserveAspectRatio="none">
+          {%- for h in c.hits %}
+          <rect class="hit" x="{{ h.x }}" width="{{ h.width }}" y="0" height="{{ c.hit_h }}" data-time="{{ h.time }}" data-price="{{ h.price }}" data-plan="{{ h.plan }}" data-why="{{ h.why }}"><title>{{ h.title }}</title></rect>
+          {%- endfor %}
+        </svg>
+      </svg>
+      <div class="readout" aria-hidden="true" hidden></div>
+      <p class="sr-only live" aria-live="polite" aria-atomic="true"></p>
+    </div>
+    <svg class="gutter" width="{{ c.gutter_w }}" height="{{ c.total_h }}" aria-hidden="true">
+      <text class="unit" x="11" y="{{ c.top - 8 }}">ct/kWh</text>
+      {%- for r in c.refs %}
+      {%- if r.name %}
+      <line class="lead {{ r.cls }}" x1="0" x2="7" y1="{{ r.lead_y }}" y2="{{ r.lead_y }}"/>
+      <text class="ref" x="11" y="{{ r.text_y }}"><tspan class="refname">{{ r.name }}</tspan> {{ r.value }}</text>
+      {%- else %}
+      <text class="{{ r.cls }}" x="11" y="{{ r.text_y }}">{{ r.value }}</text>
+      {%- endif %}
+      {%- endfor %}
+    </svg>
+  </div>
+</figure>
+{%- if key %}
+{{ chart_key(key) }}
+{%- endif %}
+<details class="tableview">
+  <summary>Show {{ c.id }} as a table</summary>
+  <table>
+    <caption class="sr-only">{{ c.title }}: price and plan per slot</caption>
+    <thead><tr><th scope="col">Quarter</th><th scope="col">ct/kWh</th><th scope="col">Plan</th><th scope="col">Why</th></tr></thead>
+    <tbody>
+      {%- for r in c.rows %}
+      <tr class="{% if r.current %}is-now{% elif r.past %}is-past{% endif %}"{% if r.current %} aria-current="time"{% endif %}><td>{{ r.time }}{% if r.current %}<span class="sr-only">, now</span>{% endif %}</td><td>{{ r.price }}</td><td class="plan-{{ r.plan_cls }}">{{ r.plan }}</td><td>{{ r.why }}</td></tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+</details>
+{%- endmacro %}
+
+{#- The key, once for both days. Swatches are small SVGs with the chart's own classes,
+    so they keep their look in forced-colours mode, where CSS backgrounds vanish. -#}
+{% macro chart_key(key) -%}
+<ul class="key" aria-label="Chart key">
+  {%- if key.planned %}
+  <li><svg class="k" width="12" height="18" aria-hidden="true"><rect class="pin on" x="2" y="0" width="8" height="18"/></svg>Planned on</li>
+  <li><svg class="k" width="12" height="18" aria-hidden="true"><rect class="pin off" x="2" y="11" width="8" height="7"/></svg>Planned off</li>
+  {%- endif %}
+  {%- if key.unknown %}
+  <li><svg class="k" width="12" height="18" aria-hidden="true"><rect class="pin unknown" x="2" y="16" width="8" height="2"/></svg>No plan</li>
+  {%- endif %}
+  {%- if key.lines %}
+  <li><svg class="k" width="20" height="14" aria-hidden="true"><rect class="band" x="0" y="1" width="20" height="12"/></svg>Keeps its state</li>
+  <li><svg class="k" width="20" height="14" aria-hidden="true"><line class="th" x1="0" x2="20" y1="7" y2="7"/></svg>Switch lines</li>
+  <li><svg class="k" width="20" height="14" aria-hidden="true"><line class="avg" x1="0" x2="20" y1="7" y2="7"/></svg>Day average</li>
+  {%- endif %}
+  {%- if key.zero %}
+  <li><svg class="k" width="20" height="14" aria-hidden="true"><line class="zero" x1="0" x2="20" y1="7" y2="7"/></svg>Zero</li>
+  {%- endif %}
+  {%- if key.morning %}
+  <li><svg class="k" width="14" height="14" aria-hidden="true"><line class="mwin" x1="2" x2="2" y1="0" y2="14"/><line class="mwin" x1="12" x2="12" y1="0" y2="14"/></svg>Morning window</li>
+  {%- endif %}
+  {%- if key.nodata %}
+  <li><svg class="k" width="20" height="14" aria-hidden="true"><rect class="nodata" x="0" y="0" width="20" height="14"/></svg>No price</li>
+  {%- endif %}
+</ul>
+{%- endmacro %}

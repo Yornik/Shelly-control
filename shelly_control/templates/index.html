@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% from "_chart.html" import day_chart %}
+{% block title %}{{ v.name }}: {{ v.hero.word }}{% endblock %}
+
+{%- macro factor(name, label, help, line) -%}
+<div class="field">
+  <label for="{{ name }}">{{ label }}</label>
+  <div class="inline">
+    <input id="{{ name }}" name="{{ name }}" type="number" inputmode="decimal" step="0.01" min="0.5" max="3" required value="{{ form[name] }}" aria-describedby="{{ name }}-help{% if errors[name] %} err-{{ name }}{% endif %}"{% if errors[name] %} aria-invalid="true"{% endif %}>
+    <span>times the average</span>
+  </div>
+  <p class="hint" id="{{ name }}-help">{{ help }}{% if line is not none %} <span class="now-value">{{ line|ct }} today.</span>{% endif %}</p>
+  {%- if errors[name] %}
+  <p class="field-error" id="err-{{ name }}">{{ errors[name] }}</p>
+  {%- endif %}
+</div>
+{%- endmacro -%}
+
+{%- macro notice_here(section) -%}
+{%- if notice and notice_section == section %}
+<p class="notice" role="status">{{ notice }}</p>
+{%- endif %}
+{%- endmacro -%}
+
+{%- macro quarter_select(name, label, selected) -%}
+<label for="{{ name }}">{{ label }}</label>
+<select id="{{ name }}" name="{{ name }}"{% if errors[name] %} aria-invalid="true" aria-describedby="err-{{ name }}"{% endif %}>
+  {%- for t in v.quarter_times %}
+  <option{% if t == selected %} selected{% endif %}>{{ t }}</option>
+  {%- endfor %}
+</select>
+{%- endmacro -%}
+
+{% block body %}
+<header class="top">
+  <span class="name">{{ v.name }}</span>
+  <span class="mode {{ v.mode_cls }}">{{ v.mode_label }}</span>
+</header>
+{#- The hatching for stretches without a price, shared by both charts and the key. #}
+<svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line class="hatch-line" x1="0" y1="0" x2="0" y2="6"/>
+    </pattern>
+  </defs>
+</svg>
+
+<main>
+{%- if v.banners %}
+<ul class="banners">
+  {%- for b in v.banners %}
+  <li class="banner banner-{{ b.level }}">
+    <svg class="icon" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+      {%- if b.level == "error" %}
+      <circle cx="10" cy="10" r="8.5"/><path d="M10 5.5v5.5M10 13.6v.9"/>
+      {%- else %}
+      <path d="M10 2.5 18.5 17h-17Z"/><path d="M10 8v4.5M10 14.6v.9"/>
+      {%- endif %}
+    </svg>
+    <span><span class="sr-only">{{ "Problem: " if b.level == "error" else "Note: " }}</span>{{ b.text }}</span>
+  </li>
+  {%- endfor %}
+</ul>
+{%- endif %}
+
+<section class="hero{% if v.hero.watching %} watching{% endif %}" aria-labelledby="state">
+  <h1 id="state" class="state {{ v.hero.cls }}">{{ v.hero.word }}</h1>
+  {%- if v.hero.watching %}
+  <p class="watch">{{ v.hero.watching }}</p>
+  {%- endif %}
+  <p class="why">{{ v.hero.why }}</p>
+  {%- if v.hero.detail %}
+  <p class="detail">{{ v.hero.detail }}</p>
+  {%- endif %}
+  {%- if v.hero.plan %}
+  <p class="next">{{ v.hero.plan }}</p>
+  {%- endif %}
+</section>
+
+<section class="days" aria-label="Prices and plan">
+  {%- set ns = namespace(keyed=false) %}
+  {%- for d in v.days %}
+  {%- if d.chart %}
+  {{ day_chart(d.chart, key=none if ns.keyed else v.key) }}
+  {%- set ns.keyed = true %}
+  {%- else %}
+  <figure class="chart empty">
+    <figcaption>{{ d.title }}</figcaption>
+    <p>{{ d.empty }}</p>
+  </figure>
+  {%- endif %}
+  {%- endfor %}
+</section>
+
+<div class="side">
+<section id="override" class="sec" aria-labelledby="h-override">
+  <h2 id="h-override">Override</h2>
+  {{- notice_here("override") }}
+  {%- if v.override_text %}
+  <p class="override-now">{{ v.override_text }} {{ v.override_after }}</p>
+  <form method="post" action="/override/clear">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn">End override now</button>
+  </form>
+  {%- else %}
+  {%- if v.live %}
+  <p class="help">Takes over from the rules until the time you pick, then the rules decide again.</p>
+  {%- else %}
+  <p class="help">Takes over until the time you pick, and switches the relay even in shadow mode. Afterwards the relay stays as the override left it: shadow mode does not switch it back.</p>
+  {%- endif %}
+  {%- if not v.switching_allowed %}
+  <p class="help">Switching is turned off for this installation (ALLOW_SWITCHING), so there is no override.</p>
+  {%- endif %}
+  {#- The #fragment names the error that a refused override shows: the browser
+       scrolls to it and focuses it, so a phone shows the problem, script or not. #}
+  <form method="post" action="/override#err-override" class="override-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="until">
+      <label for="until">Until</label>
+      <select id="until" name="until"{% if override_error %} aria-invalid="true" aria-describedby="err-override"{% endif %}{% if not v.switching_allowed %} disabled{% endif %}>
+        {%- for value, label in v.override_options %}
+        <option value="{{ value }}"{% if value == until_selected %} selected{% endif %}>{{ label }}</option>
+        {%- endfor %}
+      </select>
+    </div>
+    {%- if override_error %}
+    <p class="field-error error-summary" id="err-override" role="alert" tabindex="-1">{{ override_error }}</p>
+    {%- endif %}
+    <div class="buttons">
+      <button name="action" value="on" class="btn primary"{% if not v.switching_allowed %} disabled{% endif %}>Heat until then</button>
+      <button name="action" value="off" class="btn"{% if not v.switching_allowed %} disabled{% endif %}>Keep off until then</button>
+    </div>
+  </form>
+  {%- endif %}
+</section>
+
+<section id="rules" class="sec" aria-labelledby="h-rules">
+  <h2 id="h-rules">Rules</h2>
+  {{- notice_here("rules") }}
+  {%- if errors %}
+  <div class="error-summary" id="rules-errors" role="alert" tabindex="-1" aria-labelledby="err-summary-title">
+    <p id="err-summary-title" class="field-error">The rules were not saved. Fix these and save again:</p>
+    <ul>
+      {%- for target, label, message in error_links %}
+      <li><a href="#{{ target }}">{{ label }}: {{ message }}</a></li>
+      {%- endfor %}
+    </ul>
+  </div>
+  {%- endif %}
+  <p class="help">Each line is a factor times the day's average price{% if v.lines_today %}, {{ v.lines_today.average|ct }} today{% endif %}. Prices are per kWh, tax included.</p>
+  <form method="post" action="/settings#rules-errors" class="form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {{ factor("on_factor", "Switch on below", "Heats whenever a quarter costs less than this.", v.lines_today.on_line if v.lines_today else none) }}
+    {{ factor("off_factor", "Switch off above", "Stops heating when a quarter costs more than this. Between the two lines the relay keeps its state.", v.lines_today.off_line if v.lines_today else none) }}
+
+    <fieldset class="field">
+      <legend>Morning top-up</legend>
+      <label class="check"><input type="checkbox" id="morning_enabled" name="morning_enabled"{% if form.morning_enabled %} checked{% endif %}> Heat in the morning window when the price is under the morning line</label>
+      <div class="inline window">
+        {{ quarter_select("morning_start", "From", form.morning_start) }}
+        {{ quarter_select("morning_end", "until", form.morning_end) }}
+      </div>
+      {%- for name in ("morning_start", "morning_end") if errors[name] %}
+      <p class="field-error" id="err-{{ name }}">{{ errors[name] }}</p>
+      {%- endfor %}
+      {{ factor("morning_factor", "Morning line", "Hot water for the morning, even after an expensive night. It counts from the start time up to, not including, the end time. With hourly prices, an hour that overlaps the window counts.", v.lines_today.morning_line if v.lines_today else none) }}
+    </fieldset>
+
+    <fieldset class="field">
+      <legend>Negative prices</legend>
+      <label class="check"><input type="checkbox" id="negative_enabled" name="negative_enabled"{% if form.negative_enabled %} checked{% endif %}> Always heat when the price is below zero</label>
+      <p class="hint">Goes before every other rule but an override: below zero, using power earns money.</p>
+    </fieldset>
+
+    <fieldset class="field">
+      <legend>Average</legend>
+      {%- for key, label in v.average_labels.items() %}
+      <label class="radio"><input type="radio" id="average_window-{{ key }}" name="average_window" value="{{ key }}"{% if form.average_window == key %} checked{% endif %}{% if errors.average_window %} aria-invalid="true"{% endif %}> {{ label }}</label>
+      {%- endfor %}
+      <p class="hint">The lines move with it. The first is what the old cron script did.</p>
+      {%- if errors.average_window %}
+      <p class="field-error">{{ errors.average_window }}</p>
+      {%- endif %}
+    </fieldset>
+
+    <fieldset class="field">
+      <legend>Mode</legend>
+      <label class="radio"><input type="radio" id="mode-shadow" name="mode" value="shadow"{% if form.mode == "shadow" %} checked{% endif %}{% if errors.mode %} aria-invalid="true"{% endif %}> Shadow: decide and log; only an override switches</label>
+      <label class="radio"><input type="radio" id="mode-live" name="mode" value="live"{% if form.mode == "live" %} checked{% endif %}{% if not v.switching_allowed and v.mode != "live" %} disabled{% endif %}{% if errors.mode %} aria-invalid="true"{% endif %}> Live: switch the relay</label>
+      {%- if not v.switching_allowed %}
+      <p class="hint">Live mode needs ALLOW_SWITCHING=true in this installation's configuration.</p>
+      {%- elif v.mode == "shadow" %}
+      <label class="check confirm"><input type="checkbox" id="confirm_live" name="confirm_live" value="yes"{% if errors.confirm_live %} aria-invalid="true" aria-describedby="err-confirm_live"{% endif %}> When going live: this service may switch the relay from now on. Stop any other controller of this relay first.</label>
+      {%- endif %}
+      {%- for name in ("mode", "confirm_live") if errors[name] %}
+      <p class="field-error" id="err-{{ name }}">{{ errors[name] }}</p>
+      {%- endfor %}
+    </fieldset>
+
+    <button class="btn primary">Save rules</button>
+  </form>
+
+  <details class="howto">
+    <summary>How the rules decide</summary>
+    <p>Every quarter hour, a few seconds after it starts, the first of these that applies decides:</p>
+    <ol>
+      <li>An override, while it lasts.</li>
+      <li>No price for this quarter, or not all of today's prices: nothing is switched.</li>
+      <li>Negative prices, if on: below zero, heat.</li>
+      <li>Morning top-up, if on: inside the window and under the morning line, heat.</li>
+      <li>Under the switch-on line: heat.</li>
+      <li>Over the switch-off line: stop heating.</li>
+      <li>Otherwise the relay keeps its state, and nothing is sent.</li>
+    </ol>
+    <p>The lines are worked out to four decimals of a euro, as the old script did, and a price exactly on a line keeps the state. Shadow mode makes and logs the same decisions, but only an override switches the relay, and nothing switches it back afterwards. A command is only sent when the relay is not already where the rules want it, and never twice in quick succession.</p>
+  </details>
+</section>
+</div>
+
+<section id="log" class="sec" aria-labelledby="h-log">
+  <h2 id="h-log">Decisions</h2>
+  {%- if v.log %}
+  <ol class="entries">
+    {%- for r in v.log %}
+    <li><time>{{ r.time }}</time><span class="act {{ r.cls }}">{{ r.label }}</span><span class="reason">{{ r.text }}{% if r.who %} <em>by {{ r.who }}</em>{% endif %}</span></li>
+    {%- endfor %}
+  </ol>
+  {%- else %}
+  <p class="help">No decisions yet. The first comes a few seconds after the service starts.</p>
+  {%- endif %}
+</section>
+
+<section id="status" class="sec" aria-labelledby="h-status">
+  <h2 id="h-status">Status</h2>
+  <dl class="status">
+    {%- for s in v.status %}
+    <div><dt>{{ s.name }}</dt><dd>{{ s.value }}</dd></div>
+    {%- endfor %}
+  </dl>
+</section>
+</main>
+{% endblock %}
