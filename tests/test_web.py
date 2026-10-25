@@ -21,7 +21,7 @@ FORM = {
     "off_factor": "1.30",
     "morning_enabled": "on",
     "morning_start": "05:00",
-    "morning_end": "06:00",
+    "morning_end": "05:15",
     "morning_factor": "1.25",
     "negative_enabled": "on",
     "average_window": "day",

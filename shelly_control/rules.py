@@ -12,15 +12,16 @@ The rules come from the cron script this service replaces, in its order:
 4. a price over the switch-off line switches off;
 5. anything else keeps the relay as it is, and nothing is sent.
 
-Each line is a factor times the day's average price, cut to four decimals the
-way the script's `bc` (scale=4) did, in decimal rather than binary floating
-point. The comparisons are strict, as in the script: a price exactly on a
-line keeps the state.
+Each line is a factor times the day's average price, worked out in decimal
+and rounded to 3 decimals (0.1 ct per kWh, the precision the page shows). The
+comparisons are strict, as in the script: a price exactly on a line keeps the
+state.
 
-The defaults are the factors that reproduce the relay log of the live
-script: 1.05 and 1.25 (the replay matched all five logged switches at the
-exact quarter). The script's published copy says 1.20 and 1.50; the log
-rules those out.
+The defaults are those of the live script (boiler2.sh): on below 1.05 and off
+above 1.25 times the average, and the morning rule only in the 05:00 quarter,
+with the 1.25 line. A replay of the relay log matched all five logged
+switches at the exact quarter with these factors. An older published copy of
+the script said 1.20 and 1.50; the log rules those out.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ import datetime as dt
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 from .prices import PriceBook, Slot, is_complete, local_day
@@ -63,7 +64,7 @@ class Settings:
     off_factor: float = 1.25
     morning_enabled: bool = True
     morning_start: dt.time = dt.time(5, 0)
-    morning_end: dt.time = dt.time(6, 0)
+    morning_end: dt.time = dt.time(5, 15)
     morning_factor: float = 1.25
     negative_enabled: bool = True
     average_window: str = "day"
@@ -291,7 +292,7 @@ class Lines:
     morning_line: float
 
 
-_FOUR_PLACES = Decimal("0.0001")
+_PRECISION = Decimal("0.001")
 
 
 def _decimal(value: float) -> Decimal:
@@ -299,17 +300,19 @@ def _decimal(value: float) -> Decimal:
     return Decimal(repr(value))
 
 
-def _cut(value: Decimal) -> Decimal:
-    """Four decimals, cut off rather than rounded, as `bc` with scale=4 did in the script."""
-    return value.quantize(_FOUR_PLACES, rounding=ROUND_DOWN)
+def _rounded(value: Decimal) -> Decimal:
+    """Three decimals, 0.1 ct per kWh: the precision the page shows."""
+    return value.quantize(_PRECISION, rounding=ROUND_HALF_UP)
 
 
 def lines_for(settings: Settings, book: PriceBook, day: dt.date, tz: ZoneInfo) -> Lines | None:
     """The lines of one local day, or None if that day's prices are incomplete.
 
     Worked out in decimal, so a price the exporter writes as 0.21 is exactly on
-    a line of 0.2100, and keeps the state, as it did in the script. In binary
+    a line of 0.210, and keeps the state, as it did in the script. In binary
     floating point 1.05 x 0.2 is 0.21000000000000002, and 0.21 would be "under" it.
+    Each line comes from the unrounded average, so it is at most 0.05 ct from
+    the script's.
     """
     slots = book.day(day, tz)
     if not is_complete(slots, day, tz):
@@ -322,12 +325,12 @@ def lines_for(settings: Settings, book: PriceBook, day: dt.date, tz: ZoneInfo) -
     # Weighted by length, so a day of hourly fallback prices averages the same
     # way; for a day of equal slots this is the plain mean the script used.
     seconds = sum(s.seconds for s in pool)
-    average = _cut(sum(_decimal(s.total) * s.seconds for s in pool) / seconds)
+    average = sum(_decimal(s.total) * s.seconds for s in pool) / seconds
     return Lines(
-        average=float(average),
-        on_line=float(_cut(_decimal(settings.on_factor) * average)),
-        off_line=float(_cut(_decimal(settings.off_factor) * average)),
-        morning_line=float(_cut(_decimal(settings.morning_factor) * average)),
+        average=float(_rounded(average)),
+        on_line=float(_rounded(_decimal(settings.on_factor) * average)),
+        off_line=float(_rounded(_decimal(settings.off_factor) * average)),
+        morning_line=float(_rounded(_decimal(settings.morning_factor) * average)),
     )
 
 

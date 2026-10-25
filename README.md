@@ -91,14 +91,14 @@ Three layers, each one you can check in a few minutes:
 Every quarter hour, a few seconds after it starts, the first rule that applies
 decides:
 
-| # | Rule | Default | The cron script |
+| # | Rule | Default | The live script (`boiler2.sh`) |
 |---|---|---|---|
 | 1 | **Override**: on or off until a time you pick, then back to the rules | none | (none) |
-| 2 | **No usable price**: no price for this quarter, or not all of today's prices | always | exits without acting |
+| 2 | **No usable price**: no price for this quarter, or not all of today's prices | always | no current price: exits without acting |
 | 3 | **Negative prices**: below zero, heat | on | `price < 0 → on` |
-| 4 | **Morning top-up**: inside the window and under the morning line, heat | on, 05:00 to 06:00, line 1.25 × average | `hour 05 and price < 1.5 × average → on` |
-| 5 | **Switch-on line**: under it, heat | 1.05 × average | `price < 1.2 × average → on` |
-| 6 | **Switch-off line**: over it, stop heating | 1.25 × average | `price > 1.5 × average → off` |
+| 4 | **Morning top-up**: inside the window and under the morning line, heat | on, the 05:00 quarter (05:00 to 05:15), line 1.25 × average | `05:00 and price < 1.25 × average → on` |
+| 5 | **Switch-on line**: under it, heat | 1.05 × average | `price < 1.05 × average → on` |
+| 6 | **Switch-off line**: over it, stop heating | 1.25 × average | `price > 1.25 × average → off` |
 | 7 | **Between the lines**: the relay keeps its state, nothing is sent | | no action |
 
 In plain words: a quarter that costs less than the switch-on line heats, a
@@ -111,27 +111,31 @@ The page can also average today's and tomorrow's quarters once tomorrow's
 prices are known (`day_and_next`; the default is `day`). Prices are Tibber's
 `total`: energy plus tax, per kWh.
 
-The average and the lines are worked out in decimal and cut to four decimals,
-as the script's `bc` (with `scale=4`) did, so a price the exporter writes as
-`0.21` is exactly on a `0.2100` line and keeps the state. Factors take at most
-two decimals.
+The average and the lines are worked out in decimal and rounded to three
+decimals (0.1 ct, as the page shows them), so a price the exporter writes as
+`0.21` is exactly on a `0.210` line and keeps the state. The script's `bc -l`
+keeps 20 decimals; a line here is at most 0.05 ct from the script's.
+Factors take at most two decimals.
 
 The morning window counts a quarter that starts inside it (from the start time
-up to, not including, the end time). With the exporter's hourly fallback
-prices, an hour that overlaps the window counts.
+up to, not including, the end time). The default is the 05:00 quarter only:
+the script runs every quarter and checks for 05:00 exactly. With the
+exporter's hourly fallback prices, an hour that overlaps the window counts, so
+the default window then covers 05:00 to 06:00.
 
-**Why 1.05 and 1.25, not the script's 1.20 and 1.50?** The script's published
-copy says 1.20 and 1.50, but the relay's own log disagrees. Replaying five days
-of real prices (20 to 24 October 2026) with the rules above, switch-on factors
-from 1.03 to 1.05 with switch-off factors from 1.24 to 1.28 reproduce all five
-logged switches at the exact quarter. The boiler's power readings narrow the
-switch-off factor to 1.24 to 1.26: they show it starting at 21:45 on 20 October
-after hours cold, a switch-on that needs a switch-off earlier that evening,
-which 1.27 and up never make. 1.20 and 1.50 reproduce none of the five. The
-replay is a test: [`tests/test_rules.py`](tests/test_rules.py) runs it on
+**Why 1.05 and 1.25?** They are the live script's factors (`boiler2.sh`, run
+by cron). An older published copy of the script says 1.20
+and 1.50 with hourly prices, and the relay's own log rules those out.
+Replaying five days of real prices (20 to 24 October 2026) with the rules
+above, switch-on factors from 1.03 to 1.05 with switch-off factors from 1.24
+to 1.28 reproduce all five logged switches at the exact quarter. The boiler's
+power readings narrow the switch-off factor to 1.24 to 1.26: they show it
+starting at 21:45 on 20 October after hours cold, a switch-on that needs a
+switch-off earlier that evening, which 1.27 and up never make. 1.20 and 1.50
+reproduce none of the five. The replay is a test:
+[`tests/test_rules.py`](tests/test_rules.py) runs it on
 [`tests/fixtures/replay_2026-10-20_to_24.json`](tests/fixtures/replay_2026-10-20_to_24.json)
-(prices only), and checks these ranges. Check the factors in the live script
-before you switch over.
+(prices only), and checks these ranges.
 
 **Shadow and live.** In shadow mode the service makes the same decisions and
 logs them, but sends nothing; "keep" then keeps the state this service *would*

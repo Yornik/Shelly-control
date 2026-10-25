@@ -103,8 +103,8 @@ def test_a_partial_day_is_drawn_on_the_whole_day():
 def test_the_morning_window_and_its_own_line_are_drawn():
     settings = Settings(morning_factor=1.10)
     plan, model = chart_for(NORMAL_DAY, at(NORMAL_DAY, 12), settings=settings)
-    assert model.morning.x == minutes(NORMAL_DAY, 5) and model.morning.width == 60
-    assert model.morning_line[:2] == (300, 360)
+    assert model.morning.x == minutes(NORMAL_DAY, 5) and model.morning.width == 15
+    assert model.morning_line[:2] == (300, 315)
     assert "morn" in [r.name for r in model.refs]
     assert any(label.text == "morning" for label in model.labels)
     # With the morning line on the switch-off line, there is no second line to draw.

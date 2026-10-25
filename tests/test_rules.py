@@ -49,7 +49,7 @@ def test_defaults_are_the_factors_that_reproduce_the_relay_log():
     assert (s.morning_enabled, s.morning_start, s.morning_end) == (
         True,
         dt.time(5),
-        dt.time(6),
+        dt.time(5, 15),
     )
     assert s.morning_factor == 1.25
     assert s.negative_enabled is True
@@ -94,12 +94,12 @@ def test_a_price_exactly_on_a_line_built_from_prices_keeps_the_state():
     assert decision.rule == "between" and decision.action == "keep"
 
 
-def test_lines_are_cut_to_four_decimals_like_bc():
-    # The average 0.20005 is 0.2000 for bc with scale=4, and so the lines.
-    book = book_of(make_day(NORMAL_DAY, lambda i, local: 0.2001 if i % 2 else 0.2))
+def test_lines_are_rounded_to_three_decimals():
+    # The average 0.2005 shows as 0.201; the line is 1.5 x 0.2005 = 0.30075, so 0.301.
+    book = book_of(make_day(NORMAL_DAY, lambda i, local: 0.201 if i % 2 else 0.2))
     lines = lines_for(Settings(on_factor=1.5), book, NORMAL_DAY, TZ)
-    assert lines.average == 0.2
-    assert lines.on_line == 0.3
+    assert lines.average == 0.201
+    assert lines.on_line == 0.301
 
 
 def test_negative_rule_can_be_turned_off():
@@ -121,11 +121,21 @@ def test_an_average_at_or_below_zero_switches_nothing_but_negative_prices_still_
 def test_morning_window_includes_its_start_and_excludes_its_end(hour, minute, inside):
     # Every quarter costs the same; only the morning line is above that price.
     book = book_of(make_day(NORMAL_DAY, flat(0.20)))
-    settings = Settings(on_factor=0.9, off_factor=1.3, morning_factor=1.1)
+    settings = Settings(on_factor=0.9, off_factor=1.3, morning_factor=1.1, morning_end=dt.time(6))
     decision = decide(settings, book, at(NORMAL_DAY, hour, minute, 30), False, None, TZ)
     assert decision.morning is inside
     assert decision.rule == ("morning" if inside else "between")
     assert decision.target is inside
+
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "inside"), [(4, 45, False), (5, 0, True), (5, 15, False)]
+)
+def test_the_default_morning_window_is_the_0500_quarter_like_the_script(hour, minute, inside):
+    # The live script checks hour == 05 and minute == 00, and cron runs it each quarter.
+    book = book_of(make_day(NORMAL_DAY, flat(0.20)))
+    decision = decide(Settings(), book, at(NORMAL_DAY, hour, minute, 30), False, None, TZ)
+    assert decision.morning is inside
 
 
 def test_morning_window_off_the_hour_works_with_hourly_prices():
