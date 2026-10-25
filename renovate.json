@@ -1,0 +1,98 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:enableMajor",
+    ":separateMultipleMajorReleases",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "description": "Same policy as the other homelab repos (mazda6e-grafana-bridge, shelly-bridge): updates merge themselves once CI is green, but only after three days, so a compromised or withdrawn release has time to surface before it ships.",
+  "minimumReleaseAge": "3 days",
+  "labels": [
+    "renovate",
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "groupName": "patch updates",
+      "automerge": true
+    },
+    {
+      "description": "Actions are pinned to commit digests; Renovate bumps the digest and rewrites the trailing '# vX.Y.Z' comment.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "automerge": true
+    },
+    {
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pinDigest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "The Dockerfile's python image and PYTHON_VERSION in checks.yaml are one interpreter: move them in one pull request so CI always tests what ships.",
+      "matchDepNames": [
+        "python"
+      ],
+      "groupName": "python"
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "PYTHON_VERSION in the workflows follows the python Docker image.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "PYTHON_VERSION:\\s*'(?<currentValue>.*?)'"
+      ],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "description": "Tool versions the workflows pin inline, marked with a '# renovate:' comment.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+:\\s*(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "description": "Linters run as containers in checks.yaml.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "docker run [^\\n]*?(?<depName>rhysd/actionlint|hadolint/hadolint):(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "pip install (?<depName>pip-audit)==(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "pypi"
+    }
+  ],
+  "semanticCommits": "enabled",
+  "semanticCommitType": "fix"
+}

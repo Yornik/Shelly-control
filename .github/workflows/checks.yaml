@@ -1,0 +1,171 @@
+name: checks
+
+# The jobs a change has to pass. They live in their own workflow so both release
+# paths can list them in `needs`: ci.yaml calls this on every pull request and
+# push, release-please.yaml before it publishes an image, so a release can never
+# be built from a commit whose checks are red.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  # Keep in step with the Dockerfile's python tag, or CI tests a different
+  # interpreter from the one that ships. Renovate moves both together.
+  PYTHON_VERSION: '3.15'
+  # renovate: datasource=github-releases depName=prometheus/prometheus
+  PROMETHEUS_VERSION: v3.15.1
+
+# Every action is pinned to a commit digest, not a tag: a tag is mutable and
+# whoever can move it can run arbitrary code with this workflow's token. The
+# trailing comment is the human-readable version, and is the exact format
+# Renovate reads and rewrites (helpers:pinGitHubActionDigests in renovate.json).
+
+jobs:
+  lint:
+    name: Lint (ruff, actionlint, hadolint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+      - name: hadolint
+        run: docker run --rm -i hadolint/hadolint:v2.15.1 < Dockerfile
+
+  # Its own job so a red cross names the problem: the relay switches a 1.1 kW
+  # boiler, so "Switch.Set and reads, nothing else" is checked here, not
+  # promised. See scripts/check_allowlist.py for exactly what it rejects.
+  allowlist:
+    name: Allowlist guard (Switch.Set and reads only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements.txt
+      - run: python scripts/check_allowlist.py
+
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      # No coverage floor on purpose: a threshold fails the day someone adds
+      # untestable wiring. The total goes in the run summary so a drop is seen.
+      # pipefail: the default shell has none, and tee would hide a failed test.
+      - run: |
+          set -o pipefail
+          pytest --cov=shelly_control --cov-report=term-missing:skip-covered | tee pytest.out
+      - name: Record the coverage total
+        run: grep '^TOTAL' pytest.out >> "$GITHUB_STEP_SUMMARY"
+
+  dashboard:
+    name: Dashboard and metric names (promtool)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements.txt
+      # The pytest suite already checks that every metric the dashboard asks
+      # for is exported. This runs each query through Prometheus' own parser,
+      # which catches the typo pytest cannot: a query Grafana would show empty.
+      - name: Install promtool
+        run: |
+          set -euo pipefail
+          v="${PROMETHEUS_VERSION#v}"
+          curl -fsSL "https://github.com/prometheus/prometheus/releases/download/${PROMETHEUS_VERSION}/prometheus-${v}.linux-amd64.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin "prometheus-${v}.linux-amd64/promtool"
+      - name: Check every dashboard query
+        run: |
+          python3 scripts/dashboard_rules.py dashboards/shelly-control.json > /tmp/dashboard-rules.json
+          promtool check rules /tmp/dashboard-rules.json
+      # Every name, type, unit suffix and help text the service serves, against
+      # Prometheus' naming rules (a counter without _total, a gauge with it, ...).
+      - name: Check every metric name
+        run: |
+          set -o pipefail
+          python scripts/sample_exposition.py | promtool check metrics
+
+  audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # Only the runtime requirements: they are what ships in the image.
+      - run: pip install pip-audit==2.10.1
+      - run: pip-audit --strict -r requirements.txt
+
+  image:
+    name: Build image and smoke-test it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: shelly-control:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Runs the image the way the cluster does (read-only root, uid 65532, a
+      # writable /data) against a device and an exporter nothing listens on. A
+      # healthy image starts, serves the page, refuses a foreign Host and a
+      # form without its token, saves a change through the API, and reports
+      # the missing prices instead of crashing.
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          docker run -d --name ctl --read-only --cap-drop ALL \
+            --tmpfs /data:uid=65532,gid=65532,mode=0700 -p 9123:9123 \
+            -e SHELLY_URL=http://127.0.0.1:9 \
+            -e TIBBER_EXPORTER_URL=http://127.0.0.1:9 \
+            -e TIBBER_HOME_ID=00000000-0000-4000-8000-000000000000 \
+            -e ALLOWED_HOSTS=localhost:9123 \
+            shelly-control:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS localhost:9123/metrics > metrics.txt \
+              && grep -q '^shelly_control_evaluations_total [1-9]' metrics.txt; then break; fi
+            sleep 1
+          done
+          docker logs ctl
+          test "$(curl -fsS localhost:9123/healthz)" = ok
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:9123/readyz)" = 503
+          curl -fsS localhost:9123/ > page.html
+          grep -q 'No usable prices' page.html
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' localhost:9123/)" = 400
+          test "$(curl -s -o /dev/null -w '%{http_code}' -d on_factor=1.1 localhost:9123/settings)" = 403
+          grep -x 'shelly_control_prices_up 0.0' metrics.txt
+          grep -x 'shelly_control_live 0.0' metrics.txt
+          token="$(curl -fsS localhost:9123/api/v1/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])')"
+          curl -fsS -X PUT -H 'Content-Type: application/json' -H "X-CSRF-Token: $token" \
+            -d '{"on_factor": 1.1}' localhost:9123/api/v1/settings
+          docker exec ctl cat /data/state.json | grep -q '"on_factor": 1.1'
+          test "$(docker inspect -f '{{.State.Running}}' ctl)" = true
+          test "$(docker exec ctl id -u)" = 65532

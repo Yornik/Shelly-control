@@ -1,0 +1,326 @@
+/* Delft: cobalt on tin-glaze white. One hue means "the boiler is (planned) on";
+   everything else is neutral, so red and green never suggest cheap or expensive
+   next to the price chart. No shadows, no gradients, no inline styles (the
+   Content-Security-Policy forbids them). */
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("fonts/AtkinsonHyperlegibleNext-latin.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+  --page: #f3f6fa;
+  --surface: #fbfcfd;
+  --ink: #17203a;
+  --ink-2: #4c5871;
+  --muted: #636d87;
+  --hairline: #dfe5ee;
+  --grid: #d5dce6;
+  --band: #e7ecf6;
+  --cobalt: #2c4fa3;
+  /* Past "on" pins: lighter, still 3.6:1 on the panel. */
+  --cobalt-past: #6a83be;
+  --on-cobalt: #ffffff;
+  --error: #b3261e;
+  --error-wash: #fbeceb;
+  --warning: #7a5200;
+  --warning-wash: #fbf3e2;
+  --radius-panel: 14px;
+  --radius-control: 8px;
+  --font: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #0e131c;
+    --surface: #141b26;
+    --ink: #e6ebf3;
+    --ink-2: #a9b4c8;
+    --muted: #7d879b;
+    --hairline: #253042;
+    --grid: #2c384c;
+    --band: #1b2433;
+    --cobalt: #6a88dd;
+    --cobalt-past: #5470b6;
+    --on-cobalt: #0e131c;
+    --error: #f08a80;
+    --error-wash: #2a1716;
+    --warning: #e3b65a;
+    --warning-wash: #261f10;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 400 1rem/1.5 var(--font);
+}
+main { padding: 0 16px 48px; max-width: 1240px; margin: 0 auto; }
+a { color: var(--cobalt); }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Header: the name and the mode, nothing else. */
+.top {
+  display: flex; align-items: center; justify-content: space-between;
+  max-width: 1240px; margin: 0 auto; padding: 14px 16px 0;
+}
+.name { font-weight: 700; }
+.mode {
+  font-size: 0.875rem; font-weight: 650; padding: 3px 10px;
+  border-radius: 999px; border: 1px solid var(--ink-2); color: var(--ink-2);
+}
+.mode.live { background: var(--cobalt); color: var(--on-cobalt); border-color: var(--cobalt); }
+.mode.shadow { border-style: dashed; }
+/* Live in the settings, but this installation may not switch: never the solid live pill. */
+.mode.live-blocked { border: 1px dashed var(--warning); color: var(--warning); background: var(--warning-wash); }
+.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* Banners: a problem in words, with an icon and the status colour. */
+.banners { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; }
+.banner {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px;
+  border-left: 3px solid; border-radius: 4px; max-width: 48rem;
+}
+.banner-error { border-color: var(--error); background: var(--error-wash); }
+.banner-warning, .banner-info { border-color: var(--warning); background: var(--warning-wash); }
+.icon { flex: none; margin-top: 2px; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.banner-error .icon { stroke: var(--error); }
+.banner-warning .icon, .banner-info .icon { stroke: var(--warning); }
+
+/* Hero: the relay's state in one word, the decision in one sentence. The one
+   large type moment on the page. */
+.hero { padding: 26px 0 22px; max-width: 36rem; }
+.state {
+  margin: 0; font-size: clamp(2.75rem, 11vw, 4.5rem); line-height: 1;
+  font-weight: 750; letter-spacing: -0.02em;
+}
+.state.is-on { color: var(--cobalt); }
+.state.is-unknown { color: var(--muted); }
+/* Shadow mode on the hero itself: the state word underlined with the shadow pill's dashes. */
+.watching .state {
+  text-decoration: underline dashed var(--muted); text-decoration-thickness: 3px;
+  text-underline-offset: 0.16em; text-decoration-skip-ink: none;
+}
+.watch {
+  margin: 14px 0 0; padding-left: 10px; border-left: 3px dashed var(--ink-2);
+  font-weight: 650; color: var(--ink-2);
+}
+.why { margin: 14px 0 6px; font-size: 1.1875rem; line-height: 1.45; }
+.detail { margin: 0 0 6px; color: var(--ink-2); }
+.next { margin: 0; color: var(--ink-2); }
+
+/* Chart panels: the only surfaces on the page. */
+.chart {
+  margin: 0 0 10px; padding: 14px 14px 6px; background: var(--surface);
+  border: 1px solid var(--hairline); border-radius: var(--radius-panel);
+}
+.chart figcaption { font-weight: 650; margin-bottom: 2px; }
+.chart.empty p { margin: 6px 0 10px; color: var(--ink-2); }
+.plotgrid { display: grid; grid-template-columns: minmax(0, 1fr) 76px; column-gap: 4px; }
+.plotwrap { position: relative; min-width: 0; border-radius: 4px; }
+.plotwrap:focus { outline: none; }
+.plotwrap:focus-visible { outline: 3px solid var(--cobalt); outline-offset: 4px; }
+.viz { display: block; overflow: visible; touch-action: pan-y; }
+.viz text, .gutter text { font-family: var(--font); }
+.grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.band { fill: var(--band); }
+/* Zero is its own line, heavier than the average, and named in the gutter. */
+.zero { stroke: var(--ink-2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.avg { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.th { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.mwin { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 1 3; vector-effect: non-scaling-stroke; }
+.mlabel { font-size: 11px; fill: var(--muted); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.nodata { fill: url(#hatch); }
+.hatch-line { stroke: var(--grid); stroke-width: 1.5; }
+.nodata-label {
+  font-size: 12px; fill: var(--ink-2); paint-order: stroke; stroke: var(--surface); stroke-width: 4px;
+}
+/* Dims the plot behind the past only; the price line keeps 4:1 under it. */
+.past { fill: var(--surface); opacity: 0.4; }
+.price {
+  fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.pin.on { fill: var(--cobalt); }
+.pin.on.done { fill: var(--cobalt-past); }
+.pin.off, .pin.unknown { fill: var(--muted); }
+.now { stroke: var(--ink); stroke-width: 1; }
+.cross { stroke: var(--cobalt); stroke-width: 1; }
+.nowlabel { font-size: 12px; font-weight: 650; fill: var(--ink); }
+.gutter { display: block; overflow: visible; }
+.unit, .grid-label { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.ref { font-size: 12px; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.refname { fill: var(--muted); }
+.lead { stroke-width: 1; }
+.lead-th { stroke: var(--ink-2); stroke-dasharray: 4 3; }
+.lead-avg { stroke: var(--muted); }
+.ext {
+  font-size: 12px; font-weight: 650; fill: var(--ink); font-variant-numeric: tabular-nums;
+  paint-order: stroke; stroke: var(--surface); stroke-width: 3px;
+}
+.hour { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.hit { fill: transparent; }
+.hits { cursor: crosshair; }
+
+/* The readout that follows the pointer or the arrow keys. */
+.readout {
+  position: absolute; top: 0; z-index: 1; width: max-content; max-width: 15rem; pointer-events: none;
+  padding: 8px 10px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--hairline); border-radius: var(--radius-control);
+  font-size: 0.875rem; line-height: 1.35;
+}
+.readout strong { display: block; font-size: 1.0625rem; }
+.readout .r-time { display: block; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.readout .r-plan { display: block; font-weight: 650; }
+.readout .r-plan.on { color: var(--cobalt); }
+.readout .r-why { display: block; color: var(--ink-2); }
+
+.key {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; list-style: none;
+  margin: 0 0 4px; padding: 0 2px; font-size: 0.875rem; color: var(--ink-2);
+}
+.key li { display: flex; align-items: center; gap: 6px; }
+.k { flex: none; overflow: visible; }
+
+.tableview { margin: 0 0 18px; font-size: 0.9375rem; }
+.tableview summary { cursor: pointer; color: var(--cobalt); padding: 8px 0; min-height: 44px; }
+.tableview table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.tableview th, .tableview td {
+  text-align: left; vertical-align: top; padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.tableview .is-past { color: var(--muted); }
+.tableview .is-now td { font-weight: 650; }
+.tableview .plan-on { color: var(--cobalt); font-weight: 650; }
+
+/* Controls: plain sections, one hairline between them, not cards. */
+.sec { border-top: 1px solid var(--hairline); padding: 18px 0 10px; }
+h2 { font-size: 1.25rem; margin: 0 0 6px; font-weight: 700; }
+.help { margin: 0 0 12px; color: var(--ink-2); font-size: 0.9375rem; max-width: 40rem; }
+.notice {
+  margin: 0 0 12px; padding: 6px 10px; border-left: 3px solid var(--cobalt);
+  background: var(--band); font-weight: 650;
+}
+.error-summary {
+  margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--error);
+  background: var(--error-wash); max-width: 40rem;
+  /* Scrolled to with room above, so the heading or the field it is about shows too. */
+  scroll-margin-top: 7rem;
+}
+.error-summary:focus { outline: none; }
+.error-summary:focus-visible { outline: 3px solid var(--cobalt); outline-offset: 2px; }
+.error-summary .field-error { margin: 0; }
+.error-summary ul { margin: 6px 0 0; padding-left: 1.2rem; }
+.error-summary a { color: var(--error); font-weight: 650; }
+p.error-summary { padding: 6px 10px; }
+.override-now { margin: 0 0 12px; font-size: 1.0625rem; font-weight: 650; color: var(--cobalt); }
+.override-form { display: grid; gap: 10px; max-width: 30rem; }
+.until { display: flex; flex-direction: column; gap: 4px; font-weight: 650; }
+.until select { max-width: 14rem; }
+.buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form { display: grid; gap: 16px; max-width: 30rem; }
+.field { margin: 0; padding: 0; border: 0; min-width: 0; }
+.field > label, legend { font-weight: 650; display: block; margin-bottom: 4px; padding: 0; }
+.field .field { margin-top: 10px; }
+.inline { display: flex; align-items: center; gap: 10px; color: var(--ink-2); flex-wrap: wrap; }
+.inline.window { margin: 6px 0 0; color: var(--ink); }
+.hint { margin: 4px 0 0; font-size: 0.875rem; color: var(--ink-2); }
+.now-value { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.field-error { margin: 6px 0 0; color: var(--error); font-weight: 650; font-size: 0.9375rem; }
+.check, .radio { display: block; padding: 7px 0; color: var(--ink); }
+.confirm { margin-top: 4px; color: var(--ink-2); }
+input[type="number"], select {
+  font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--muted); border-radius: var(--radius-control);
+  padding: 8px 10px; min-height: 44px;
+}
+input[type="number"] { width: 6.5rem; font-variant-numeric: tabular-nums; }
+select { font-variant-numeric: tabular-nums; }
+input[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--error); border-width: 2px; }
+input[type="checkbox"], input[type="radio"] {
+  width: 20px; height: 20px; accent-color: var(--cobalt); vertical-align: -4px; margin: 0 6px 0 0;
+}
+.btn {
+  font: inherit; font-weight: 650; min-height: 44px; padding: 10px 16px;
+  border-radius: var(--radius-control); border: 1px solid var(--ink-2);
+  background: transparent; color: var(--ink); cursor: pointer;
+}
+.btn.primary { background: var(--cobalt); border-color: var(--cobalt); color: var(--on-cobalt); }
+.btn:disabled, input:disabled + *, select:disabled { cursor: not-allowed; opacity: 0.55; }
+:focus-visible { outline: 3px solid var(--cobalt); outline-offset: 2px; }
+
+.howto { margin: 18px 0 4px; max-width: 40rem; color: var(--ink-2); font-size: 0.9375rem; }
+.howto summary { cursor: pointer; color: var(--cobalt); padding: 8px 0; min-height: 44px; }
+.howto ol { padding-left: 1.4rem; margin: 6px 0; }
+.howto li { margin: 2px 0; }
+
+/* Decision log: time, what happened, why. */
+.entries { list-style: none; margin: 0; padding: 0; }
+.entries li {
+  display: grid; grid-template-columns: 4.25rem 6.75rem minmax(0, 1fr); gap: 8px;
+  padding: 9px 0; border-bottom: 1px solid var(--hairline); font-size: 0.9375rem;
+}
+.entries time { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.act { font-weight: 650; }
+.act-on { color: var(--cobalt); }
+.act-would { color: var(--ink-2); }
+.act-error { color: var(--error); }
+.act-keep, .act-off { color: var(--ink); }
+.change { color: var(--ink); }
+.reason em { font-style: normal; color: var(--muted); }
+
+.status { margin: 0; font-size: 0.9375rem; }
+.status div { display: grid; grid-template-columns: 6.75rem minmax(0, 1fr); gap: 8px; padding: 4px 0; }
+.status dt { color: var(--ink-2); }
+.status dd { margin: 0; }
+
+.plain { max-width: 40rem; padding-top: 40px; }
+.error-title { font-size: 2rem; margin: 0 0 8px; }
+
+@media (max-width: 420px) {
+  .entries li { grid-template-columns: 3.5rem minmax(0, 1fr); }
+  .entries .reason { grid-column: 2; }
+  .buttons { grid-template-columns: 1fr; }
+}
+/* Wide screens: what it does on the left (state, charts, log), what you can
+   change on the right. Phones read the same sections top to bottom. */
+@media (min-width: 960px) {
+  main {
+    display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+    grid-template-areas:
+      "banners banners"
+      "hero side"
+      "days side"
+      "log side"
+      "status side"
+      ". side";
+    /* The last row takes whatever the taller side column needs, so the left
+       column never opens gaps between its sections. */
+    grid-template-rows: auto auto auto auto auto 1fr;
+    column-gap: 56px; align-items: start;
+  }
+  .banners { grid-area: banners; }
+  .hero { grid-area: hero; }
+  .days { grid-area: days; }
+  .side { grid-area: side; padding-top: 26px; }
+  #override { border-top: 0; padding-top: 0; }
+  #log { grid-area: log; margin-top: 8px; }
+  #status { grid-area: status; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (forced-colors: active) {
+  .pin.on { fill: CanvasText; }
+  .pin.on.done, .pin.off, .pin.unknown { fill: GrayText; }
+  .price, .zero { stroke: CanvasText; }
+  .band { fill: Canvas; stroke: GrayText; }
+  .hatch-line, .mwin, .avg, .th { stroke: GrayText; }
+  .banner, .error-summary { border-color: CanvasText; }
+  .mode.live-blocked { border-color: CanvasText; }
+}

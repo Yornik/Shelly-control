@@ -1,0 +1,22 @@
+# What the image installs, the whole tree pinned: the four direct dependencies,
+# then everything they pull in. Pinning the transitive ones too means every
+# build ships the same versions, and Renovate's three-day minimum release age
+# covers all of them, not only the four this service imports.
+flask==3.1.3
+prometheus-client==0.26.0
+requests==2.34.2
+waitress==3.0.2
+
+# Through flask.
+blinker==1.9.0
+click==8.5.0
+itsdangerous==2.2.0
+jinja2==3.1.6
+markupsafe==3.0.4
+werkzeug==3.1.9
+
+# Through requests.
+certifi==2026.10.19
+charset-normalizer==3.5.2
+idna==3.20
+urllib3==2.8.0
