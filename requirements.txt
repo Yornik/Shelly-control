@@ -16,7 +16,7 @@ markupsafe==3.0.4
 werkzeug==3.1.9
 
 # Through requests.
-certifi==2026.10.19
+certifi==2026.10.23
 charset-normalizer==3.5.2
 idna==3.20
 urllib3==2.8.0
