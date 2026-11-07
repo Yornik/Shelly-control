@@ -22,6 +22,7 @@ from shelly_control.rules import (
     Lines,
     Override,
     Settings,
+    closest_call,
     ct,
     decide,
     lines_for,
@@ -498,3 +499,59 @@ def test_which_factors_reproduce_the_log(on, off):
     # switch-off earlier that evening.
     cold_start = ("10-20 21:45", True) in switches
     assert (five and cold_start) == (1.03 <= on <= 1.05 and 1.24 <= off <= 1.26)
+
+
+# -- the closest call: why no switch is planned ------------------------------------------------
+
+
+def flat_peak(peak: float):
+    """The default day with a lower evening peak: 0.18 at night, 0.22 in the morning."""
+    return lambda i, local: (
+        peak if 17 <= local.hour < 20 else 0.22 if 7 <= local.hour < 10 else 0.18
+    )
+
+
+def test_closest_call_with_the_relay_on_is_the_peak_under_the_off_line():
+    # Average 0.191875, so the off line rounds to 0.240; the 0.235 peak stays 0.005 under it.
+    book = book_of(make_day(NORMAL_DAY, flat_peak(0.235)))
+    plans = plan_days(Settings(), book, at(NORMAL_DAY, 12), True, None, TZ, [NORMAL_DAY])
+    assert next_changes(plans, at(NORMAL_DAY, 12), True) == []
+    call = closest_call(plans, Settings(), True, TZ)
+    assert call.line_name == "switch-off"
+    assert call.line == plans[0].lines.off_line == 0.24
+    assert call.slot.start == at(NORMAL_DAY, 17)
+    assert call.margin == pytest.approx(0.005)
+
+
+def test_closest_call_with_the_relay_off_is_the_low_over_the_on_line():
+    # The cheapest quarter is never over its own day's average, so with a switch-on
+    # factor of 1 or more a relay that is off always has a switch-on planned. Only a
+    # factor under 1 can leave it off all day.
+    book = book_of(make_day(NORMAL_DAY, lambda i, local: 0.19 if local.hour == 13 else 0.20))
+    settings = Settings(on_factor=0.90, morning_enabled=False)
+    plans = plan_days(settings, book, at(NORMAL_DAY, 12), False, None, TZ, [NORMAL_DAY])
+    assert next_changes(plans, at(NORMAL_DAY, 12), False) == []
+    call = closest_call(plans, settings, False, TZ)
+    assert call.line_name == "switch-on"
+    assert call.slot.start == at(NORMAL_DAY, 13)
+    assert call.margin == pytest.approx(0.19 - plans[0].lines.on_line)
+
+
+def test_closest_call_counts_only_slots_ahead_and_needs_a_known_state():
+    book = book_of(make_day(NORMAL_DAY, flat_peak(0.235)))
+    late = at(NORMAL_DAY, 21)
+    plans = plan_days(Settings(), book, late, True, None, TZ, [NORMAL_DAY])
+    # The 17:00 to 20:00 peak is over: the closest call ahead is a night price.
+    call = closest_call(plans, Settings(), True, TZ)
+    assert call.slot.start >= at(NORMAL_DAY, 21) and call.slot.total == 0.18
+    assert closest_call(plans, Settings(), None, TZ) is None
+
+
+def test_closest_call_on_the_line_has_no_margin():
+    # 0.253 for the 18:00 hour, 0.20 elsewhere: the off line rounds to exactly 0.253, and a
+    # price on the line keeps the state.
+    book = book_of(make_day(NORMAL_DAY, lambda i, local: 0.253 if local.hour == 18 else 0.20))
+    plans = plan_days(Settings(), book, at(NORMAL_DAY, 12), True, None, TZ, [NORMAL_DAY])
+    assert plans[0].lines.off_line == 0.253
+    call = closest_call(plans, Settings(), True, TZ)
+    assert (call.slot.start, call.margin) == (at(NORMAL_DAY, 18), 0)

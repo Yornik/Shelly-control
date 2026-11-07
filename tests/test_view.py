@@ -10,7 +10,7 @@ from conftest import DST_END, NORMAL_DAY, TZ, at, ts
 
 from shelly_control.rules import Override, Settings
 from shelly_control.shelly import DeviceInfo
-from shelly_control.view import build_view
+from shelly_control.view import build_view, relay_history
 
 LIVE = Settings(mode="live")
 
@@ -261,3 +261,51 @@ def test_empty_days_say_what_is_missing(make_controller, fake_exporter, clock):
     today, tomorrow = build_view(controller.snapshot(), TZ, "Boiler").days
     assert today.empty.startswith("There are no prices for today yet.")
     assert tomorrow.empty.startswith("No prices for tomorrow either.")
+
+
+# -- v1.1.0: why nothing switches, and the relay's history -------------------------------------
+
+
+def flat_peak(peak: float):
+    return lambda i, local: (
+        peak if 17 <= local.hour < 20 else 0.22 if 7 <= local.hour < 10 else 0.18
+    )
+
+
+def test_no_planned_change_says_how_close_it_came(snapshot, fake_exporter):
+    from conftest import make_day
+
+    fake_exporter.prices = make_day(NORMAL_DAY, flat_peak(0.235)) + make_day(
+        NORMAL_DAY + dt.timedelta(days=1), flat_peak(0.235)
+    )
+    view = build_view(snapshot(12), TZ, "Boiler")
+    assert view.hero.plan == (
+        "Plan: no change while prices are known. The closest it comes: 23.5 ct at 17:00, "
+        "0.5 ct under the 24.0 ct switch-off line."
+    )
+    shadow = build_view(snapshot(12, settings=Settings()), TZ, "Boiler")
+    assert shadow.hero.plan.startswith("The rules would change nothing while prices are known.")
+    assert shadow.hero.plan.endswith("0.5 ct under the 24.0 ct switch-off line.")
+
+
+def test_the_history_comes_from_the_decision_log(snapshot):
+    snap = snapshot(12)
+    history = relay_history(snap.entries)
+    ((state, reason),) = [v for k, v in history.items()]
+    assert state is True and reason.startswith("18.0 ct is under")
+    view = build_view(snap, TZ, "Boiler")
+    assert view.key.history
+    today = view.days[0].chart
+    # Before the first decision nothing was logged; the quarter of the decision was on.
+    noon = [p for p in today.pins if p.cls.endswith("done")]
+    assert noon and all(p.cls == "pin unknown done" for p in noon)
+    # Entries that are not decisions, and broken ones, are skipped.
+    assert (
+        relay_history(
+            [
+                {"kind": "change", "ts": "2026-10-27T11:00:00+00:00"},
+                {"kind": "evaluation", "ts": "x"},
+            ]
+        )
+        == {}
+    )

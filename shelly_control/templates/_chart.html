@@ -9,12 +9,12 @@
         <rect class="nodata" x="{{ x }}" width="{{ width }}" y="{{ c.top }}" height="{{ c.rail_y + c.rail_h - c.top }}"/>
         {%- endfor %}
         <svg y="{{ c.top }}" width="100%" height="{{ c.plot_h }}" viewBox="0 0 {{ c.span }} {{ c.plot_h }}" preserveAspectRatio="none">
-          {%- for g in c.grid %}
-          <line class="{{ g.cls }}" x1="0" x2="{{ c.span }}" y1="{{ g.y }}" y2="{{ g.y }}"/>
-          {%- endfor %}
           {%- if c.band %}
           <rect class="band" x="0" width="{{ c.span }}" y="{{ c.band[0] }}" height="{{ c.band[1] }}"/>
           {%- endif %}
+          {%- for g in c.grid %}
+          <line class="{{ g.cls }}" x1="0" x2="{{ c.span }}" y1="{{ g.y }}" y2="{{ g.y }}"/>
+          {%- endfor %}
           {%- if c.morning %}
           <line class="mwin" x1="{{ c.morning.x }}" x2="{{ c.morning.x }}" y1="0" y2="{{ c.plot_h }}"/>
           <line class="mwin" x1="{{ c.morning.x + c.morning.width }}" x2="{{ c.morning.x + c.morning.width }}" y1="0" y2="{{ c.plot_h }}"/>
@@ -40,6 +40,9 @@
         {%- if c.now_x %}
         <line class="now" x1="{{ c.now_x }}" x2="{{ c.now_x }}" y1="{{ c.top - 4 }}" y2="{{ c.rail_y + c.rail_h }}"/>
         <text class="nowlabel" x="{{ c.now_x }}" y="{{ c.top - 8 }}" text-anchor="middle">now</text>
+        {%- endif %}
+        {%- if c.band_label %}
+        <text class="{{ c.band_label.cls }}" x="{{ c.band_label.x }}" y="{{ c.band_label.y }}" text-anchor="{{ c.band_label.anchor }}">{{ c.band_label.text }}</text>
         {%- endif %}
         {%- for l in c.nodata_labels %}
         <text class="{{ l.cls }}" x="{{ l.x }}" y="{{ l.y }}" text-anchor="{{ l.anchor }}">{{ l.text }}</text>
@@ -94,6 +97,9 @@
   {%- if key.planned %}
   <li><svg class="k" width="12" height="18" aria-hidden="true"><rect class="pin on" x="2" y="0" width="8" height="18"/></svg>Planned on</li>
   <li><svg class="k" width="12" height="18" aria-hidden="true"><rect class="pin off" x="2" y="11" width="8" height="7"/></svg>Planned off</li>
+  {%- endif %}
+  {%- if key.history %}
+  <li><svg class="k" width="24" height="18" aria-hidden="true"><rect class="pin on done" x="2" y="0" width="8" height="18"/><rect class="pin off done" x="14" y="11" width="8" height="7"/></svg>Before now: what the relay did</li>
   {%- endif %}
   {%- if key.unknown %}
   <li><svg class="k" width="12" height="18" aria-hidden="true"><rect class="pin unknown" x="2" y="16" width="8" height="2"/></svg>No plan</li>

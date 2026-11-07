@@ -156,14 +156,22 @@ One page, top to bottom on a phone, in two columns from 960 px:
 
 - **State**: the relay in one word (Heating, On, Off), the decision in one
   sentence ("Power costs 13.0 ct per kWh now, under the 17.2 ct switch-on
-  line."), and the next planned changes.
+  line."), and the next planned changes. When nothing is planned to switch,
+  it says how close it comes ("The closest it comes: 54.5 ct at 15:30, 0.4 ct
+  under the 54.9 ct switch-off line."), so a day whose prices never reach a
+  line is told apart from a fault.
 - **Today and tomorrow**: the price per quarter in ct/kWh with the switch lines,
-  the band between them where the relay keeps its state, the day's average,
-  the morning window, and a rail of quarter-hour pins with the plan (a full
-  pin on, a short bar off, a dotted baseline where there is no plan). The x
-  axis is the clock: a quarter without a price is a hatched gap, not a line
-  that runs on. Hover, tap or focus the chart and use the arrow keys for one
-  quarter's details; every value is also in the table under each chart.
+  the band between them where the relay keeps its state (named on the chart),
+  the day's average, the morning window, and a rail of quarter-hour pins (a
+  full pin on, a short bar off, a dotted baseline where nothing is known).
+  From now on the rail is the plan; before now it is what the relay did, from
+  the decision log, in lighter pins. A day's highest price that stays under
+  the switch-off line while the relay is on says by how much ("54.5 · 0.4 ct
+  under off"), and likewise a lowest price over the switch-on line while it
+  is off. The x axis is the clock: a quarter without a price is a hatched
+  gap, not a line that runs on. Hover, tap or focus the chart and use the
+  arrow keys for one quarter's details; every value is also in the table
+  under each chart.
 - **Override**: heat or keep off until a time, or end it early. The times on
   offer are full times, so a choice that passes while the page stands open
   is refused, never moved to the same time tomorrow.

@@ -10,7 +10,7 @@ import pytest
 from conftest import DST_END, DST_START, NORMAL_DAY, TZ, at, book_of, make_day
 from flask import Flask, render_template_string
 
-from shelly_control.chart import build_chart, y_scale
+from shelly_control.chart import build_chart, quarter_key, y_scale
 from shelly_control.rules import DayPlan, PlannedSlot, Settings, plan_days
 from shelly_control.view import Key
 
@@ -219,3 +219,69 @@ def test_hourly_days_draw_24_slots():
     plan, model = chart_for(NORMAL_DAY, at(NORMAL_DAY, 12), step=3600)
     assert model.n == 24 and model.span == 1440
     assert [h.width for h in model.hits] == [60] * 24
+
+
+# -- v1.1.0: the band named, the near miss marked, the relay's history ---------------------------
+
+
+def peak(value: float):
+    return lambda i, local: (
+        value if 17 <= local.hour < 20 else 0.22 if 7 <= local.hour < 10 else 0.18
+    )
+
+
+def test_the_band_is_named_on_the_chart_when_tall_enough():
+    plan, model = chart_for(NORMAL_DAY, at(NORMAL_DAY, 12))
+    assert model.band_label is not None and model.band_label.text == "keeps its state"
+    assert model.band_label.cls == "bandlabel"
+    html = render(model)
+    assert ">keeps its state</text>" in html
+    # Too thin a band: no words squeezed into it.
+    plan, model = chart_for(NORMAL_DAY, at(NORMAL_DAY, 12), settings=Settings(off_factor=1.06))
+    assert model.band_label is None
+
+
+def test_a_peak_that_stays_under_the_off_line_says_by_how_much():
+    plan, model = chart_for(NORMAL_DAY, at(NORMAL_DAY, 12), price=peak(0.235))
+    high = next(label for label in model.labels if label.cls == "ext ext-max")
+    assert high.text == "23.5 \N{MIDDLE DOT} 0.5 ct under off"
+    # Above the switch-off line, so the label does not cut through it.
+    off = next(m for m in model.marks if m.cls == "th th-off")
+    assert high.y <= model.top + off.y - 5
+    # A peak over the line switched the relay off: no near miss to mark.
+    plan, model = chart_for(NORMAL_DAY, at(NORMAL_DAY, 12))
+    high = next(label for label in model.labels if label.cls == "ext ext-max")
+    assert high.text == "30.0"
+
+
+def test_the_past_rail_shows_what_the_relay_did():
+    now = at(NORMAL_DAY, 12)
+    settings = Settings()
+    book = book_of(make_day(NORMAL_DAY))
+    (plan,) = plan_days(settings, book, now, True, None, TZ, [NORMAL_DAY])
+    scale = y_scale([plan], morning=True)
+    # The relay was off from 10:00 to 11:00 (switched by hand, say), on before; no record
+    # for 11:00 to 11:15.
+    history = {}
+    quarter = at(NORMAL_DAY, 0)
+    while quarter < now:
+        if quarter < at(NORMAL_DAY, 11) or quarter >= at(NORMAL_DAY, 11, 15):
+            state = not (at(NORMAL_DAY, 10) <= quarter < at(NORMAL_DAY, 11))
+            history[quarter_key(quarter)] = (state, "logged reason")
+        quarter += dt.timedelta(minutes=15)
+    model = build_chart(plan, scale, now, TZ, "today", "Today", settings, history)
+    by_x = {round(p.x - 2): p for p in model.pins}
+    assert by_x[round(minutes(NORMAL_DAY, 10))].cls == "pin off done"
+    assert by_x[round(minutes(NORMAL_DAY, 9, 45))].cls == "pin on done"
+    assert by_x[round(minutes(NORMAL_DAY, 11))].cls == "pin unknown done"
+    # From now on, the plan: the rules have the relay on at noon.
+    assert by_x[round(minutes(NORMAL_DAY, 12))].cls == "pin on"
+    rows = {r.time: r for r in model.rows}
+    assert (rows["10:00"].plan, rows["10:00"].why) == ("Was off", "logged reason")
+    assert rows["11:00"].plan == "No record"
+    assert rows["12:00"].plan == "On"
+    hit = model.hits[40]
+    assert hit.plan == "Was off" and hit.title.startswith(
+        "10:00\N{EN DASH}10:15: 18.0 ct, was off."
+    )
+    assert 'data-plan="Was off"' in render(model)
