@@ -18,10 +18,14 @@
   --muted: #636d87;
   --hairline: #dfe5ee;
   --grid: #d5dce6;
-  --band: #e7ecf6;
+  /* The keep-state band: OKLab ΔE 8.8 from the panel, so it reads as a zone; the price
+     line keeps 12:1 and --ink-2 text 5.4:1 on it. */
+  --band: #d8e0ef;
   --cobalt: #2c4fa3;
   /* Past "on" pins: lighter, still 3.6:1 on the panel. */
   --cobalt-past: #6a83be;
+  /* Past "off" and "no record" pins: lighter, still 3.6:1 on the panel. */
+  --muted-past: #7c859b;
   --on-cobalt: #ffffff;
   --error: #b3261e;
   --error-wash: #fbeceb;
@@ -40,9 +44,11 @@
     --muted: #7d879b;
     --hairline: #253042;
     --grid: #2c384c;
-    --band: #1b2433;
+    /* ΔE 10.1 from the panel; the price line keeps 10.6:1, --ink-2 text 6.1:1. */
+    --band: #263349;
     --cobalt: #6a88dd;
     --cobalt-past: #5470b6;
+    --muted-past: #636c80;
     --on-cobalt: #0e131c;
     --error: #f08a80;
     --error-wash: #2a1716;
@@ -131,6 +137,10 @@ a { color: var(--cobalt); }
 .viz text, .gutter text { font-family: var(--font); }
 .grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .band { fill: var(--band); }
+/* Named on the band itself, so the zone needs no trip to the key. */
+.bandlabel {
+  font-size: 11px; fill: var(--ink-2); paint-order: stroke; stroke: var(--band); stroke-width: 3px;
+}
 /* Zero is its own line, heavier than the average, and named in the gutter. */
 .zero { stroke: var(--ink-2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .avg { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -151,6 +161,8 @@ a { color: var(--cobalt); }
 .pin.on { fill: var(--cobalt); }
 .pin.on.done { fill: var(--cobalt-past); }
 .pin.off, .pin.unknown { fill: var(--muted); }
+/* Before now the rail shows what the relay did, so the past is lighter than the plan. */
+.pin.off.done, .pin.unknown.done { fill: var(--muted-past); }
 .now { stroke: var(--ink); stroke-width: 1; }
 .cross { stroke: var(--cobalt); stroke-width: 1; }
 .nowlabel { font-size: 12px; font-weight: 650; fill: var(--ink); }
@@ -317,9 +329,10 @@ input[type="checkbox"], input[type="radio"] {
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 @media (forced-colors: active) {
   .pin.on { fill: CanvasText; }
-  .pin.on.done, .pin.off, .pin.unknown { fill: GrayText; }
+  .pin.on.done, .pin.off, .pin.unknown, .pin.off.done, .pin.unknown.done { fill: GrayText; }
   .price, .zero { stroke: CanvasText; }
   .band { fill: Canvas; stroke: GrayText; }
+  .bandlabel { fill: CanvasText; stroke: Canvas; }
   .hatch-line, .mwin, .avg, .th { stroke: GrayText; }
   .banner, .error-summary { border-color: CanvasText; }
   .mode.live-blocked { border-color: CanvasText; }

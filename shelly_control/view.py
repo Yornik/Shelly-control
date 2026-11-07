@@ -10,9 +10,20 @@ import datetime as dt
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
-from .chart import ChartModel, build_chart, y_scale
+from .chart import ChartModel, build_chart, quarter_key, y_scale
 from .controller import Snapshot, prices_usable
-from .rules import DayPlan, Lines, ct, hhmm, lines_for, next_changes, plan_days, until_text
+from .rules import (
+    ClosestCall,
+    DayPlan,
+    Lines,
+    closest_call,
+    ct,
+    hhmm,
+    lines_for,
+    next_changes,
+    plan_days,
+    until_text,
+)
 
 # Below this the relay is on but the boiler draws nothing: its thermostat is satisfied.
 IDLE_WATTS = 20.0
@@ -73,6 +84,8 @@ class Key:
     nodata: bool
     lines: bool = True
     planned: bool = True
+    # The rail shows what the relay did before now.
+    history: bool = False
 
 
 @dataclass(frozen=True)
@@ -220,12 +233,30 @@ def _hero(snap: Snapshot, tz: ZoneInfo, plans: list[DayPlan], now: dt.datetime) 
                 if shadow
                 else "Plan: no change while prices are known."
             )
+            if snap.override is None or snap.override.until <= now:
+                call = closest_call(plans, snap.settings, snap.current, tz)
+                if call is not None:
+                    plan_line += " " + _closest_sentence(call, now, tz)
     watching = (
         "Shadow mode: this service decides and logs, but does not switch the relay."
         if shadow
         else None
     )
     return Hero(word, cls, why, detail, plan_line, watching)
+
+
+def _closest_sentence(call: ClosestCall, now: dt.datetime, tz: ZoneInfo) -> str:
+    """Why nothing switches: 54.5 ct at 15:30 is 0.4 ct under the 54.9 ct switch-off line."""
+    local = call.slot.start.astimezone(tz)
+    day = "" if local.date() == now.astimezone(tz).date() else "tomorrow "
+    when = f"{ct(call.slot.total)} {day}at {hhmm(local)}"
+    line = "zero" if call.line_name == "zero" else f"the {ct(call.line)} {call.line_name} line"
+    side = "under" if call.line_name == "switch-off" else "over"
+    if call.margin == 0:
+        return f"The closest it comes: {when}, exactly on {line}, which keeps the state."
+    if round(call.margin * 100, 1) == 0:
+        return f"The closest it comes: {when}, just {side} {line}."
+    return f"The closest it comes: {when}, {ct(call.margin)} {side} {line}."
 
 
 def _live_sentence(rule: str, price: float, lines: Lines | None, reason: str) -> str:
@@ -439,6 +470,28 @@ def _empty_text(day: dt.date, today: dt.date, local_now: dt.datetime, any_prices
     )
 
 
+def relay_history(entries: tuple[dict, ...] | list[dict]) -> dict[int, tuple[bool | None, str]]:
+    """The relay state at the last decision of each quarter hour, from the decision log.
+
+    Keyed like chart.quarter_key. The state is the relay as read (or as switched) at
+    that decision, in live and in shadow mode alike: what the relay did, not what
+    the rules wanted. A quarter without a decision is simply missing.
+    """
+    history: dict[int, tuple[bool | None, str]] = {}
+    for entry in entries:
+        if entry.get("kind") != "evaluation":
+            continue
+        try:
+            moment = dt.datetime.fromisoformat(str(entry.get("ts")))
+        except ValueError:
+            continue
+        state = entry.get("relay_after")
+        if not isinstance(state, bool):
+            state = None
+        history[quarter_key(moment)] = (state, str(entry.get("reason") or ""))
+    return history
+
+
 def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
     now = dt.datetime.fromtimestamp(snap.now, dt.UTC)
     local_now = now.astimezone(tz)
@@ -453,11 +506,12 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
     any_prices = bool(shown)
     days = []
     charts = []
+    history = relay_history(snap.entries)
     for plan in plans:
         title = _title(plan.day, today)
         if plan.slots and scale is not None:
             chart_id = "today" if plan.day == today else "tomorrow"
-            chart = build_chart(plan, scale, now, tz, chart_id, title, snap.settings)
+            chart = build_chart(plan, scale, now, tz, chart_id, title, snap.settings, history)
             charts.append(chart)
             days.append(DayView(chart, title, None))
         else:
@@ -471,6 +525,7 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
             nodata=any(c.nodata for c in charts),
             lines=any(c.band is not None for c in charts),
             planned=any(p.target is not None for plan in plans for p in plan.slots),
+            history=any(p.past for plan in plans for p in plan.slots),
         )
 
     usable = prices_usable(snap, tz)

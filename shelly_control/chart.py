@@ -3,9 +3,9 @@
 One chart per day: the price as a step line, the switch-on and switch-off
 lines with the band between them where the relay keeps its state, the day's
 average, the morning window, and under it a rail of quarter-hour pins (a
-mechanical timer, unrolled) that shows the plan: a full pin where the relay is
-planned on, a short bar where it is planned off, a dotted baseline where the
-plan is unknown.
+mechanical timer, unrolled): a full pin for on, a short bar for off, a dotted
+baseline for unknown. From now on the rail shows the plan; before now, given
+the decision log, it shows what the relay did, in lighter pins.
 
 x is time. The plot is an SVG whose viewBox is one unit per minute of the
 local day (1380, 1440 or 1500 minutes: summer time starts, a normal day,
@@ -21,11 +21,12 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
 from .prices import day_bounds
-from .rules import DayPlan, Lines, Settings, ct, hhmm
+from .rules import DayPlan, Lines, PlannedSlot, Settings, ct, hhmm
 
 PLOT_H = 176
 RAIL_H = 28
@@ -39,8 +40,13 @@ GUTTER_W = 76
 LABEL_SPACING = 14
 # A "no price" span narrower than this share of the day gets no words.
 NODATA_LABEL_SHARE = 0.08
+# The band is named on the chart only when it is this tall (plot units) or taller.
+BAND_LABEL_MIN_H = 16
 
 PLAN_WORDS = {True: "On", False: "Off", None: "Unknown"}
+PAST_WORDS = {True: "Was on", False: "Was off", None: "No record"}
+NO_RECORD = "No decision was recorded in this quarter."
+QUARTER_S = 900
 
 
 @dataclass(frozen=True)
@@ -166,6 +172,8 @@ class ChartModel:
     unknown: bool
     rows: tuple[Row, ...]
     aria: str
+    # "keeps its state", written on the band where it is tall enough.
+    band_label: Label | None = None
     plot_h: int = PLOT_H
     rail_h: int = RAIL_H
     top: int = TOP
@@ -230,6 +238,30 @@ def _grid(scale: YScale, refs: tuple[Ref, ...]) -> tuple[tuple[Mark, ...], tuple
     return tuple(marks), tuple(labels)
 
 
+def _near_miss(planned: PlannedSlot, lines: Lines | None, high: bool) -> str:
+    """The gap to the line a day's extreme price did not cross, while it mattered.
+
+    The highest price, with the relay planned on, inside the band: how far it
+    stayed under the switch-off line. The lowest price, with the relay planned
+    off, inside the band: how far it stayed over the switch-on line. Elsewhere
+    the extreme crossed a line or the relay was already where it would go.
+    """
+    if lines is None:
+        return ""
+    price = planned.slot.total
+    if high and planned.target is True and lines.on_line <= price <= lines.off_line:
+        gap, side, name = lines.off_line - price, "under", "off"
+    elif not high and planned.target is False and lines.on_line <= price <= lines.off_line:
+        gap, side, name = price - lines.on_line, "over", "on"
+    else:
+        return ""
+    if gap == 0:
+        return f" \N{MIDDLE DOT} on the {name} line"
+    if round(gap * 100, 1) == 0:
+        return f" \N{MIDDLE DOT} just {side} {name}"
+    return f" \N{MIDDLE DOT} {ct(gap)} {side} {name}"
+
+
 def _gaps(plan: DayPlan, start: dt.datetime, end: dt.datetime) -> list[Span]:
     """The stretches of the day without a price."""
     gaps, cursor = [], start
@@ -242,6 +274,11 @@ def _gaps(plan: DayPlan, start: dt.datetime, end: dt.datetime) -> list[Span]:
     return gaps
 
 
+def quarter_key(moment: dt.datetime) -> int:
+    """The quarter hour a moment falls in, as Unix seconds of its start."""
+    return int(moment.timestamp()) // QUARTER_S * QUARTER_S
+
+
 def build_chart(
     plan: DayPlan,
     scale: YScale,
@@ -250,7 +287,11 @@ def build_chart(
     chart_id: str,
     title: str,
     settings: Settings | None = None,
+    history: Mapping[int, tuple[bool | None, str]] | None = None,
 ) -> ChartModel:
+    """One day's chart. `history` maps a quarter (see quarter_key) to the relay state
+    and the reason logged at its last decision; with it, quarters before now show
+    what the relay did instead of what the rules would have planned."""
     slots = plan.slots
     lines = plan.lines
     start, end = day_bounds(plan.day, tz)
@@ -266,6 +307,15 @@ def build_chart(
         marks.append(Mark("th th-off", scale.y(lines.off_line)))
     if scale.low < 0:
         marks.append(Mark("zero", scale.y(0)))
+    band_label = None
+    if band is not None and band[1] >= BAND_LABEL_MIN_H:
+        band_label = Label(
+            "0.6%",
+            round(TOP + band[0] + band[1] / 2 + 4, 2),
+            "start",
+            "keeps its state",
+            "bandlabel",
+        )
 
     morning = morning_line = None
     if show_morning:
@@ -286,15 +336,20 @@ def build_chart(
         path.append(f"H{x1}")
         previous_end = planned.slot.end
 
+    def was(quarter: dt.datetime) -> tuple[bool | None, str]:
+        return history.get(quarter_key(quarter), (None, NO_RECORD)) if history else (None, "")
+
     pins = []
     for planned in slots:
-        cls = {True: "pin on", False: "pin off", None: "pin unknown"}[planned.target]
-        height = {True: RAIL_H, False: STUB_H, None: DOT_H}[planned.target]
-        if planned.past:
-            cls += " done"
         # One pin per quarter, also for an hour of the exporter's hourly fallback.
         quarter = planned.slot.start
         while quarter < planned.slot.end:
+            past = history is not None and quarter + dt.timedelta(minutes=15) <= now
+            state = was(quarter)[0] if past else planned.target
+            cls = {True: "pin on", False: "pin off", None: "pin unknown"}[state]
+            height = {True: RAIL_H, False: STUB_H, None: DOT_H}[state]
+            if planned.past or past:
+                cls += " done"
             x = _minutes(quarter, start)
             pins.append(Pin(round(x + 2, 3), RAIL_H - height, 11, height, cls))
             quarter += dt.timedelta(minutes=15)
@@ -327,8 +382,15 @@ def build_chart(
             if dy > 0 and y > TOP + PLOT_H - 2:
                 # No room under the lowest point: above it, clear of the pin rail.
                 y = TOP + scale.y(totals[i]) - 6
+            near = _near_miss(slots[i], lines, high=cls.endswith("max"))
+            if near and dy < 0:
+                # Clear of the switch-off line the peak stayed under, so the line stays whole.
+                y = min(y, TOP + scale.y(lines.off_line) - 5)
+            elif near:
+                # Clear of the switch-on line the low stayed over.
+                y = max(y, TOP + scale.y(lines.on_line) + 15)
             y = max(y, 11)
-            labels.append(Label(_pct(mid, span), y, anchor, _value(totals[i]), cls))
+            labels.append(Label(_pct(mid, span), y, anchor, _value(totals[i]) + near, cls))
 
     for hour in range(round(span / 60)):
         local = (start + dt.timedelta(hours=hour)).astimezone(tz)
@@ -359,18 +421,26 @@ def build_chart(
         e_local = planned.slot.end.astimezone(tz)
         when = f"{hhmm(s_local)}\N{EN DASH}{hhmm(e_local)}"
         price = ct(planned.slot.total)
-        word = PLAN_WORDS[planned.target]
+        if history is not None and planned.past:
+            # The slot's last quarter: the state the relay ended the slot in.
+            state, reason = was(planned.slot.end - dt.timedelta(minutes=15))
+            word = PAST_WORDS[state]
+            title_text = f"{when}: {price}, {word[0].lower()}{word[1:]}. {reason}"
+        else:
+            state, reason = planned.target, planned.reason
+            word = PLAN_WORDS[state]
+            title_text = f"{when}: {price}, planned {word.lower()}. {reason}"
         if not found_start and (planned.current or not planned.past):
             start_hit, found_start = i, True
         hits.append(
             Hit(
                 _minutes(planned.slot.start, start),
                 round(planned.slot.seconds / 60, 3),
-                f"{when}: {price}, planned {word.lower()}. {planned.reason}",
+                title_text,
                 when,
                 price,
                 word,
-                planned.reason,
+                reason,
             )
         )
         rows.append(
@@ -378,8 +448,8 @@ def build_chart(
                 hhmm(s_local),
                 _value(planned.slot.total),
                 word,
-                {True: "on", False: "off", None: "unknown"}[planned.target],
-                planned.reason,
+                {True: "on", False: "off", None: "unknown"}[state],
+                reason,
                 planned.past,
                 planned.current,
             )
@@ -429,4 +499,5 @@ def build_chart(
         unknown=any(p.target is None for p in slots),
         rows=tuple(rows),
         aria=aria,
+        band_label=band_label,
     )

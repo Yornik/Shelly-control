@@ -49,11 +49,14 @@
       cross.setAttribute("x1", middle * 100 + "%");
       cross.setAttribute("x2", middle * 100 + "%");
       cross.setAttribute("visibility", "visible");
-      var plan = "Planned " + data.plan.toLowerCase();
+      // Before now the rail shows what the relay did ("Was on"), after it the plan.
+      var history = /^(Was |No record)/.test(data.plan);
+      var plan = history ? data.plan : "Planned " + data.plan.toLowerCase();
+      var on = data.plan === "On" || data.plan === "Was on";
       readout.replaceChildren(
         el("strong", "", data.price),
         el("span", "r-time", data.time),
-        el("span", "r-plan" + (data.plan === "On" ? " on" : ""), plan),
+        el("span", "r-plan" + (on ? " on" : ""), plan),
         el("span", "r-why", data.why)
       );
       readout.hidden = false;

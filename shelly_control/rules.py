@@ -567,6 +567,57 @@ def plan_days(
     return result
 
 
+@dataclass(frozen=True)
+class ClosestCall:
+    """The slot ahead that came nearest to switching the relay, when nothing switches it."""
+
+    slot: Slot
+    # The line it stayed on the wrong side of, and its name as the page says it.
+    line: float
+    line_name: str
+    # How far the price stayed from that line, in euros per kWh; 0 means on the line.
+    margin: float
+
+
+def closest_call(
+    plans: list[DayPlan], settings: Settings, current: bool | None, tz: ZoneInfo
+) -> ClosestCall | None:
+    """Why no switch is planned: the known slot ahead that came nearest to one.
+
+    With the relay on, that is the price nearest under the switch-off line; with
+    it off, the price nearest over the line that would switch it on (the
+    switch-on line, the morning line in the morning window, or zero). Only
+    slots the lines decide count: an override, a day without all its prices or
+    a day with an average at or below zero says nothing about the lines.
+    """
+    if current is None:
+        return None
+    best: ClosestCall | None = None
+    for plan in plans:
+        lines = plan.lines
+        if lines is None:
+            continue
+        for planned in plan.slots:
+            if planned.past or planned.rule in ("override", "no_prices", "no_lines"):
+                continue
+            price = planned.slot.total
+            if current:
+                candidates = [(lines.off_line, "switch-off", lines.off_line - price)]
+            else:
+                candidates = [(lines.on_line, "switch-on", price - lines.on_line)]
+                if settings.morning_enabled and in_morning(settings, planned.slot, tz):
+                    candidates.append((lines.morning_line, "morning", price - lines.morning_line))
+                if settings.negative_enabled:
+                    candidates.append((0.0, "zero", price))
+            for line, name, margin in candidates:
+                # A price over the line would switch: then a change is planned, not a call.
+                if margin < 0:
+                    continue
+                if best is None or margin < best.margin:
+                    best = ClosestCall(planned.slot, line, name, margin)
+    return best
+
+
 def next_changes(
     plans: list[DayPlan], now: dt.datetime, current: bool | None, limit: int = 2
 ) -> list[tuple[dt.datetime, bool]]:
