@@ -91,12 +91,33 @@ jobs:
       # The pytest suite already checks that every metric the dashboard asks
       # for is exported. This runs each query through Prometheus' own parser,
       # which catches the typo pytest cannot: a query Grafana would show empty.
+      # Downloaded through the API with the workflow token, and retried: an
+      # anonymous download from github.com shares GitHub's stricter limits for
+      # unauthenticated traffic, and a 5xx here blocks a release (2026-11-08:
+      # 4 attempts in a row got 503/504 and v1.1.0 shipped without an image).
       - name: Install promtool
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           v="${PROMETHEUS_VERSION#v}"
-          curl -fsSL "https://github.com/prometheus/prometheus/releases/download/${PROMETHEUS_VERSION}/prometheus-${v}.linux-amd64.tar.gz" \
-            | tar xz --strip-components=1 -C /usr/local/bin "prometheus-${v}.linux-amd64/promtool"
+          tarball="prometheus-${v}.linux-amd64.tar.gz"
+          for attempt in 1 2 3 4 5; do
+            if gh release download "${PROMETHEUS_VERSION}" --repo prometheus/prometheus \
+                --pattern "${tarball}" --dir "${RUNNER_TEMP}" --clobber; then
+              break
+            fi
+            if [ "${attempt}" -eq 5 ]; then
+              echo "::error::could not download ${tarball} after 5 attempts"
+              exit 1
+            fi
+            echo "attempt ${attempt} failed; retrying in $((attempt * 10)) s"
+            sleep $((attempt * 10))
+          done
+          tar xzf "${RUNNER_TEMP}/${tarball}" --strip-components=1 -C /usr/local/bin \
+            "prometheus-${v}.linux-amd64/promtool"
+          promtool --version
       - name: Check every dashboard query
         run: |
           python3 scripts/dashboard_rules.py dashboards/shelly-control.json > /tmp/dashboard-rules.json
