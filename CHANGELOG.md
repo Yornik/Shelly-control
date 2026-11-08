@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/Yornik/Shelly-control/compare/v1.0.0...v1.1.0) (2026-11-08)
+
+
+### Features
+
+* say why nothing switches, and show what the relay did ([122efb3](https://github.com/Yornik/Shelly-control/commit/122efb3cd4322d5b709c9cf9a3917aa57a099a4e))
+* say why nothing switches, and show what the relay did ([b7da78e](https://github.com/Yornik/Shelly-control/commit/b7da78e5c3b11d4dbf078bf1ebc9d5b681a53067))
+
 ## 1.0.0 (2026-10-25)
 
 
