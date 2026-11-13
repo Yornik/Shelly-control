@@ -15,7 +15,7 @@ env:
   # interpreter from the one that ships. Renovate moves both together.
   PYTHON_VERSION: '3.15'
   # renovate: datasource=github-releases depName=prometheus/prometheus
-  PROMETHEUS_VERSION: v3.15.1
+  PROMETHEUS_VERSION: v3.16.0
 
 # Every action is pinned to a commit digest, not a tag: a tag is mutable and
 # whoever can move it can run arbitrary code with this workflow's token. The
