@@ -23,12 +23,12 @@ through a Shelly Plus 1PM, and it starts the way that script worked.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/ui-dark.png">
-  <img alt="The shelly-control page in live mode: the relay's state, today's and tomorrow's prices with the switch lines and the planned quarters, the override and the rules" src="docs/ui-light.png" width="700">
+  <img alt="The shelly-control page in live mode: the relay's state, today's and tomorrow's prices with the switch lines and the planned quarters, the override, the vacation switch-off and the rules" src="docs/ui-light.png" width="700">
 </picture>
 
-_Rendered against a fake relay and a fake exporter serving the real prices of
-25 October 2026 (the 25-hour day summer time ends) and made-up prices for the
-day after._
+_Rendered against a fake relay and a fake exporter with made-up prices, on
+Saturday 7 November 2026 at 17:15. The relay's history before now is replayed
+from the decision log, as the page shows it._
 
 - **Switches with `Switch.Set` only, enforced.** The device client can call
   three methods: two reads and `Switch.Set`. It refuses anything else before a
@@ -171,6 +171,11 @@ bacteria, so:
   boiler has fully heated up to its safe temperature. The boiler's own
   thermostat decides what that is (position 3 is about 85 °C; anything under
   60 °C does not kill Legionella). Check the water before you use it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/ui-vacation-dark.png">
+  <img alt="The confirmation popup for a vacation: the boiler will not heat at all, the water may be unsafe afterwards because of Legionella, the heating time after the vacation, the boost knob instruction, a box to tick, and the buttons Switch off completely and Cancel" src="docs/ui-vacation-light.png" width="420">
+</picture>
 
 **Shadow and live.** In shadow mode the service makes the same decisions and
 logs them, but sends nothing; "keep" then keeps the state this service *would*
