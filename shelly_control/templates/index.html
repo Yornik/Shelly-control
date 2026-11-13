@@ -254,6 +254,18 @@
       <p class="hint">Goes before every other rule but an override: below zero, using power earns money.</p>
     </fieldset>
 
+    <div class="field">
+      <label for="hot_every_hours">Legionella guard: heat fully at least every</label>
+      <div class="inline">
+        <input type="number" id="hot_every_hours" name="hot_every_hours" value="{{ form.hot_every_hours }}" min="0" max="{{ v.hot_every_max }}" step="1" inputmode="numeric" required aria-describedby="hot_every_hours-help{% if errors.hot_every_hours %} err-hot_every_hours{% endif %}"{% if errors.hot_every_hours %} aria-invalid="true"{% endif %}>
+        <span>hours</span>
+      </div>
+      <p class="hint" id="hot_every_hours-help">When the water has not been fully hot for this long, the boiler heats whatever the price until its thermostat stops. Fully hot: the relay is on and the boiler draws almost no power. {% if v.last_hot_text %}<span class="now-value">{{ v.last_hot_text }}</span> {% endif %}The old night tariff gave about 24 hours. 0 turns the guard off. A vacation or an override goes first.</p>
+      {%- if errors.hot_every_hours %}
+      <p class="field-error" id="err-hot_every_hours">{{ errors.hot_every_hours }}</p>
+      {%- endif %}
+    </div>
+
     <fieldset class="field">
       <legend>Average</legend>
       {%- for key, label in v.average_labels.items() %}
@@ -286,7 +298,8 @@
     <summary>How the rules decide</summary>
     <p>Every quarter hour, a few seconds after it starts, the first of these that applies decides:</p>
     <ol>
-      <li>An override, while it lasts.</li>
+      <li>An override, while it lasts. A vacation is an override.</li>
+      <li>The Legionella guard, if on: when the water has not been fully hot for the hours set, heat until the thermostat stops, whatever the price. It needs no price.</li>
       <li>No price for this quarter, or not all of today's prices: nothing is switched.</li>
       <li>Negative prices, if on: below zero, heat.</li>
       <li>Morning top-up, if on: inside the window and under the morning line, heat.</li>

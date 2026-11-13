@@ -88,6 +88,7 @@ FIELDS = {
     "morning_factor": ("Morning line", "morning_factor"),
     "negative_enabled": ("Negative prices", "negative_enabled"),
     "average_window": ("Average", "average_window-day"),
+    "hot_every_hours": ("Legionella guard", "hot_every_hours"),
     "mode": ("Mode", "mode-shadow"),
     "confirm_live": ("Going live", "confirm_live"),
 }
@@ -138,6 +139,7 @@ def _form_settings(form) -> dict[str, object]:
             "morning_end",
             "morning_factor",
             "average_window",
+            "hot_every_hours",
             "mode",
         )
     }
@@ -466,7 +468,9 @@ def create_app(
         snap = controller.snapshot()
         now = dt.datetime.fromtimestamp(snap.now, dt.UTC)
         day = now.astimezone(tz).date() + dt.timedelta(days=which == "tomorrow")
-        (plan,) = plan_days(snap.settings, snap.book, now, snap.current, snap.override, tz, [day])
+        (plan,) = plan_days(
+            snap.settings, snap.book, now, snap.current, snap.override, tz, [day], snap.last_hot
+        )
         lines = plan.lines
         return jsonify(
             day=day.isoformat(),

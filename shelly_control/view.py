@@ -14,6 +14,8 @@ from .chart import ChartModel, build_chart, quarter_key, y_scale
 from .controller import Snapshot, prices_usable
 from .rules import (
     HEAT_UP,
+    HOT_EVERY_MAX,
+    IDLE_WATTS,
     VACATION_MAX,
     ClosestCall,
     DayPlan,
@@ -28,8 +30,6 @@ from .rules import (
     vacation_until_text,
 )
 
-# Below this the relay is on but the boiler draws nothing: its thermostat is satisfied.
-IDLE_WATTS = 20.0
 LOG_ROWS = 48
 
 AVERAGE_LABELS = {
@@ -118,6 +118,9 @@ class PageView:
     log: tuple[LogRow, ...]
     status: tuple[StatusRow, ...]
     average_labels: dict[str, str]
+    # When the water was last fully hot, for the Legionella guard's field.
+    last_hot_text: str | None = None
+    hot_every_max: int = HOT_EVERY_MAX
 
 
 def _local(moment: float | dt.datetime, tz: ZoneInfo) -> dt.datetime:
@@ -215,6 +218,10 @@ def _hero(snap: Snapshot, tz: ZoneInfo, plans: list[DayPlan], now: dt.datetime) 
         else:
             what = "heat" if decision.override.action == "on" else "stay off"
             why = f"Set by hand to {what} until {until}. {after}"
+    elif decision.rule == "hot_guard":
+        why = decision.reason
+        if shadow:
+            why += " Shadow mode: the guard switches nothing either."
     elif decision.rule == "no_prices":
         # The banner above says why there is no price.
         why = decision.reason
@@ -455,6 +462,13 @@ def _status(snap: Snapshot, tz: ZoneInfo, today: dt.date) -> list[StatusRow]:
     return rows
 
 
+def _last_hot_text(snap: Snapshot, tz: ZoneInfo, today: dt.date) -> str | None:
+    if snap.last_hot is None:
+        return None
+    ago = _ago(snap.now - snap.last_hot.timestamp())
+    return f"Last fully hot: {_when(_local(snap.last_hot, tz), today)}, {ago}."
+
+
 def _until_options(now: dt.datetime, tz: ZoneInfo) -> tuple[tuple[tuple[str, str], ...], str]:
     """Every quarter hour of the next 24 hours, as (ISO time, label), and the default.
 
@@ -533,7 +547,14 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
     today = local_now.date()
     tomorrow = today + dt.timedelta(days=1)
     plans = plan_days(
-        snap.settings, snap.book, now, snap.current, snap.override, tz, [today, tomorrow]
+        snap.settings,
+        snap.book,
+        now,
+        snap.current,
+        snap.override,
+        tz,
+        [today, tomorrow],
+        snap.last_hot,
     )
     shown = [p for p in plans if p.slots]
     morning = snap.settings.morning_enabled
@@ -613,4 +634,5 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
         log=tuple(_log(snap, tz, today)),
         status=tuple(_status(snap, tz, today)),
         average_labels=AVERAGE_LABELS,
+        last_hot_text=_last_hot_text(snap, tz, today),
     )
