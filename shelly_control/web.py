@@ -43,7 +43,7 @@ from .rules import (
     parse_vacation_end,
     plan_days,
 )
-from .view import HEAT_UP_HOURS, build_view
+from .view import HEAT_UP_TEXT, build_view
 
 LOG = logging.getLogger("shelly-control.web")
 
@@ -69,7 +69,7 @@ NOTICES = {
     "vacation": ("vacation", "Vacation started. The boiler is switched off completely."),
     "vacation_ended": (
         "vacation",
-        f"Vacation ended. The boiler heats for {HEAT_UP_HOURS} hours whatever the price, "
+        f"Vacation ended. The boiler heats for {HEAT_UP_TEXT} whatever the price, "
         "so the water can reach a safe temperature.",
     ),
     "heat_locked": (
@@ -107,7 +107,7 @@ VACATION_RUNNING = (
     "A vacation is running. End it first; the boiler then heats before anything else."
 )
 HEAT_UP_RUNNING = (
-    f"The boiler is heating after a vacation, for at least {HEAT_UP_HOURS} hours, so the water "
+    f"The boiler is heating after a vacation, for at least {HEAT_UP_TEXT}, so the water "
     "can reach a safe temperature. It cannot be changed until that time is over."
 )
 SWITCHING_OFF = (
@@ -306,7 +306,7 @@ def create_app(
                 # A vacation that was asked for but not confirmed: the page asks again, with
                 # the day and time kept and the confirmation open.
                 vacation=vacation or {},
-                heat_up_hours=HEAT_UP_HOURS,
+                heat_up_text=HEAT_UP_TEXT,
                 notice=text,
                 notice_section=section,
             ),

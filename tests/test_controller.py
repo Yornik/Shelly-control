@@ -315,7 +315,7 @@ def test_when_a_vacation_ends_the_boiler_heats_for_two_hours_whatever_the_price(
     assert snap.override.until == snap.override.set_at + HEAT_UP
     assert fake_shelly.output is True
     assert any(
-        e.get("summary", "").startswith("Vacation ended at 16:30; heating until 18:30 whatever")
+        e.get("summary", "").startswith("Vacation ended at 16:30; heating until 19:00 whatever")
         for e in snap.entries
     )
     # 17:00 to 18:45 cost 30 ct, over the 25 ct switch-off line: the rules would switch off.
@@ -324,8 +324,12 @@ def test_when_a_vacation_ends_the_boiler_heats_for_two_hours_whatever_the_price(
         controller.tick()
         assert fake_shelly.output is True
         assert controller.snapshot().last_entry["rule"] == "override"
-    # Two hours after the end it is over, and the rules decide again.
-    at_time(clock, 18, 30, 5)
+    at_time(clock, 18, 45)
+    controller.tick()
+    assert controller.snapshot().last_entry["rule"] == "override"
+    assert fake_shelly.output is True
+    # Two and a half hours after the end it is over, and the rules decide again.
+    at_time(clock, 19, 0, 5)
     controller.tick()
     snap = controller.snapshot()
     assert snap.override is None
@@ -371,8 +375,8 @@ def test_the_heat_up_cannot_be_ended_or_replaced(make_controller, fake_shelly, c
     controller.tick()
     assert controller.snapshot().override.kind == "heat_up"
     assert fake_shelly.output is True
-    # After the two hours everything works again.
-    clock.now += 2 * 3600 + 10
+    # After the heat-up everything works again.
+    clock.now += HEAT_UP.total_seconds() + 10
     controller.tick()
     assert controller.override_lock() is None
     controller.set_override("on", dt.datetime.fromtimestamp(clock.now + 600, dt.UTC), "me")

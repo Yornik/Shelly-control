@@ -82,7 +82,7 @@ def test_a_vacation_and_its_heat_up_are_explained(snapshot):
         view.override_text
         == "Vacation: the boiler is switched off completely until Tue 3 Nov 18:00."
     )
-    assert "Then the boiler heats for 2 hours whatever the price" in view.override_after
+    assert "Then the boiler heats for 2.5 hours whatever the price" in view.override_after
     assert view.hero.why.startswith(
         "Vacation: the boiler is switched off completely until Tue 3 Nov"
     )

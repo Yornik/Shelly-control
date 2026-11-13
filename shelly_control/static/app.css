@@ -249,6 +249,7 @@ p.error-summary { padding: 6px 10px; }
 .confirm-dialog::backdrop { background: rgba(14, 19, 28, 0.6); }
 .confirm-dialog h3 { margin: 0 0 8px; font-size: 1.125rem; }
 .confirm-dialog p { margin: 0 0 10px; }
+.confirm-dialog .tip { padding: 8px 10px; border-left: 4px solid var(--cobalt); background: var(--page); border-radius: 0 var(--radius-control) var(--radius-control) 0; }
 .confirm-dialog .risk { padding: 8px 10px; background: var(--error-wash); border-radius: var(--radius-control); }
 .form { display: grid; gap: 16px; max-width: 30rem; }
 .field { margin: 0; padding: 0; border: 0; min-width: 0; }

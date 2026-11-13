@@ -147,9 +147,10 @@ def _ago(seconds: float) -> str:
     return f"{seconds // 3600} h {seconds % 3600 // 60} min ago"
 
 
-HEAT_UP_HOURS = int(HEAT_UP.total_seconds() // 3600)
+# "2.5 hours", "8 hours": whole when it is whole.
+HEAT_UP_TEXT = f"{HEAT_UP.total_seconds() / 3600:g} hours"
 AFTER_VACATION = (
-    f"Then the boiler heats for {HEAT_UP_HOURS} hours whatever the price, so the water can reach "
+    f"Then the boiler heats for {HEAT_UP_TEXT} whatever the price, so the water can reach "
     "a safe temperature, and the rules decide again."
 )
 

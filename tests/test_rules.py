@@ -311,8 +311,11 @@ def test_an_override_still_lasts_at_most_a_day():
         parse_until("2026-10-29T12:00", now, TZ)
 
 
-def test_the_heat_up_lasts_at_least_two_hours():
-    assert HEAT_UP >= dt.timedelta(hours=2)
+def test_the_heat_up_matches_the_duo_with_its_boost_on():
+    # The manual: 2:30 hours to heat 75 K on both elements (2750 W). 80 litres from 12 to
+    # 60 degrees is 4.5 kWh, 1.6 hours.
+    assert 1.5 < 80 * 4.186 * (60 - 12) / 3600 / 2.75 < 1.7
+    assert HEAT_UP >= dt.timedelta(hours=2, minutes=30)
 
 
 # -- summer time --------------------------------------------------------------------------------

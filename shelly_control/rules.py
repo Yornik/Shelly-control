@@ -44,8 +44,14 @@ OVERRIDE_MAX = dt.timedelta(hours=24)
 # A vacation switches the boiler off completely, for up to this long.
 VACATION_MAX = dt.timedelta(days=60)
 # When a vacation ends, the boiler heats this long whatever the price, so the
-# water reaches a safe temperature again. Nothing shortens it.
-HEAT_UP = dt.timedelta(hours=2)
+# water reaches a safe temperature again. Nothing shortens it. Sized for the
+# 80 litre Itho Daalderop Duo (manual 01-06120-001) with its boost knob on,
+# which adds the second element for 2750 W: the manual gives 2:30 hours to heat
+# 75 degrees, and 80 kg x 4.186 kJ/(kg K) x 48 K = 4.5 kWh to 60 degrees takes
+# 1.6 hours. Without the boost the boiler heats at 1000 W and needs about 7
+# hours; the knob is on the boiler, which this service cannot turn, so the page
+# tells the owner to. Once the water is hot the thermostat stops the heating.
+HEAT_UP = dt.timedelta(hours=2.5)
 # What an override is for: the owner's own, a vacation, or the heat-up after one.
 OVERRIDE_KINDS = ("manual", "vacation", "heat_up")
 

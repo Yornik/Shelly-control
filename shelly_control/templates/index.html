@@ -22,6 +22,11 @@
 {%- endif %}
 {%- endmacro -%}
 
+{#- The boost knob is on the boiler: the service cannot turn it, so it says so. -#}
+{%- macro boost_tip() -%}
+<strong>Turn the boost on when you are home.</strong> If your boiler has a boost knob, turn it to its maximum (on a Duo: 120 minutes). That switches on the second heating element (on an 80 litre Duo: 2750 W instead of 1000 W), and the heating time above is only enough with it: without the boost an 80 litre Duo needs about 7 hours to reach 85&nbsp;°C. The knob is on the boiler; this service cannot turn it. If the water is not hot when the heating time is over, use Override to heat until it is.
+{%- endmacro -%}
+
 {%- macro quarter_select(name, label, selected) -%}
 <label for="{{ name }}">{{ label }}</label>
 <select id="{{ name }}" name="{{ name }}"{% if errors[name] %} aria-invalid="true" aria-describedby="err-{{ name }}"{% endif %}>
@@ -149,17 +154,19 @@
     <button class="btn">End vacation now</button>
   </form>
   <p class="help">Ending it early starts the heating at once. The water is only safe to use once the boiler has fully heated up again.</p>
+  <p class="help tip">{{ boost_tip() }}</p>
   {%- if vacation.error %}
   <p class="field-error error-summary" id="err-vacation" role="alert" tabindex="-1">{{ vacation.error }}</p>
   {%- endif %}
   {%- elif v.override_kind == "heat_up" %}
   <p class="override-now">{{ v.override_text }} {{ v.override_after }}</p>
   <p class="help">The boiler stays on after a vacation whatever the price, and nothing can change that until this time is over. The water is only safe to use once the boiler has fully heated up to its safe temperature: check that it has before you use it.</p>
+  <p class="help tip">{{ boost_tip() }}</p>
   {%- if vacation.error %}
   <p class="field-error error-summary" id="err-vacation" role="alert" tabindex="-1">{{ vacation.error }}</p>
   {%- endif %}
   {%- else %}
-  <p class="help">Going away? Switch the boiler off completely until the day and time you pick. No rule switches it on while it lasts, not even a negative price. When the vacation ends, the boiler heats for {{ heat_up_hours }} hours whatever the price.</p>
+  <p class="help">Going away? Switch the boiler off completely until the day and time you pick. No rule switches it on while it lasts, not even a negative price. When the vacation ends, the boiler heats for {{ heat_up_text }} whatever the price.</p>
   {%- if not v.switching_allowed %}
   <p class="help">Switching is turned off for this installation (ALLOW_SWITCHING), so there is no vacation.</p>
   {%- endif %}
@@ -194,7 +201,8 @@
       <h3 id="vd-title">Switch the boiler off completely?</h3>
       <p>The boiler will not heat at all until the time you picked. No rule switches it on, not even a negative price, and the water cools down to room temperature.</p>
       <p class="risk"><strong>The water may be unsafe afterwards.</strong> Legionella bacteria can grow in water that stands lukewarm for days. Breathing in their droplets, for instance in shower steam, can cause a serious lung infection. Heating the water to about 60&nbsp;°C kills them. This service cannot measure the water temperature.</p>
-      <p>When the vacation ends, the boiler heats for {{ heat_up_hours }} hours whatever the price. <strong>The water is only safe to use after the boiler has fully heated up to its safe temperature again.</strong> Check that it has before you shower or use the hot tap; if you are not sure, wait. How long that takes depends on your boiler.</p>
+      <p>When the vacation ends, the boiler heats for {{ heat_up_text }} whatever the price. <strong>The water is only safe to use after the boiler has fully heated up to its safe temperature again.</strong> Check that it has before you shower or use the hot tap; if you are not sure, wait. How long that takes depends on your boiler.</p>
+      <p class="tip">{{ boost_tip() }}</p>
       {%- if vacation.confirm and vacation.error %}
       <p class="field-error error-summary" id="err-vacation" role="alert" tabindex="-1">{{ vacation.error }}</p>
       {%- endif %}
