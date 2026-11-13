@@ -328,7 +328,7 @@ exports those.
 | `shelly_control_live` | | `1` in live mode, `0` in shadow mode |
 | `shelly_control_switching_allowed` | | `1` if `ALLOW_SWITCHING` allows switching at all |
 | `shelly_control_decision_action` | `action` | `1` for the latest decision's action (`on`, `off`, `keep`), `0` for the others |
-| `shelly_control_decision_rule` | `rule` | `1` for the rule that decided: `override`, `no_prices`, `negative`, `no_lines`, `morning`, `below_on`, `above_off`, `between` |
+| `shelly_control_decision_rule` | `rule` | `1` for the rule that decided: `override`, `hot_guard`, `no_prices`, `negative`, `no_lines`, `morning`, `below_on`, `above_off`, `between` |
 | `shelly_control_target_on` | | `1` if the decision wants the relay on, `0` off. Absent while unknown. |
 | `shelly_control_price_per_kwh` | `kind` | The decision's inputs: `slot` (this quarter's price), `average`, `on_line`, `off_line`, `morning_line` |
 | `shelly_control_morning_window` | | `1` if this quarter is inside the enabled morning window |
@@ -338,6 +338,8 @@ exports those.
 | `shelly_control_relay_read_success` | | `1` if the last read of the relay worked |
 | `shelly_control_relay_last_read_timestamp_seconds` | | Time of the last good read |
 | `shelly_control_last_evaluation_timestamp_seconds` | | Time of the last decision |
+| `shelly_control_water_hot_timestamp_seconds` | | Time the water was last fully hot: relay on, under 20 W |
+| `shelly_control_hot_guard_limit_seconds` | | The Legionella guard's limit; 0 when it is off |
 | `shelly_control_prices_up` | | `1` if the last read from the exporter worked |
 | `shelly_control_prices_usable` | | `1` if the prices cover this quarter and all of its day |
 | `shelly_control_prices_last_success_timestamp_seconds` | | Time of the last good read from the exporter |

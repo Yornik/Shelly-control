@@ -158,9 +158,9 @@ class ControlCollector:
             snap.last_hot.timestamp() if snap.last_hot else None,
         )
         yield from _gauge(
-            "shelly_control_hot_guard_hours",
-            "The Legionella guard's limit in hours; 0 means the guard is off.",
-            float(snap.settings.hot_every_hours),
+            "shelly_control_hot_guard_limit_seconds",
+            "The Legionella guard's limit; 0 means the guard is off.",
+            float(snap.settings.hot_every_hours * 3600),
         )
 
     def _prices(self, snap: Snapshot) -> Iterator[Metric]:
