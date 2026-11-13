@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0](https://github.com/Yornik/Shelly-control/compare/v1.1.0...v1.2.0) (2026-11-13)
+
+
+### Features
+
+* heat for 2.5 hours after a vacation, and tell the owner to turn the boost on ([67f9214](https://github.com/Yornik/Shelly-control/commit/67f92140e960a37f8b810ddbc33eb4558ce8b939))
+* vacation mode, with a safety confirmation and a 2-hour heat-up ([85c4496](https://github.com/Yornik/Shelly-control/commit/85c44969d4c1bb93e2d02387ea51667c7378ee3d))
+* vacation mode, with a safety confirmation and a 2.5-hour heat-up ([282cb8a](https://github.com/Yornik/Shelly-control/commit/282cb8a45fd832226945e19c2a825e6f96374171))
+
 ## [1.1.0](https://github.com/Yornik/Shelly-control/compare/v1.0.0...v1.1.0) (2026-11-08)
 
 
