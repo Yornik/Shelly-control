@@ -13,10 +13,10 @@ import pytest
 from conftest import NORMAL_DAY, PASSWORD, TZ, Clock, ts
 from fake_exporter import HOME_ID
 
-from shelly_control.controller import OUTCOMES, TRIGGERS, Controller
+from shelly_control.controller import OUTCOMES, TRIGGERS, Controller, OverrideLocked
 from shelly_control.logs import JsonFormatter
 from shelly_control.prices import PriceClient
-from shelly_control.rules import Settings, parse_until
+from shelly_control.rules import HEAT_UP, Settings, parse_until
 from shelly_control.shelly import ShellyClient
 from shelly_control.store import Store, StoreError
 
@@ -268,6 +268,178 @@ def test_clearing_an_override(make_controller, clock):
     controller.set_override("on", until, "me")
     assert controller.clear_override("me") is True
     assert controller.snapshot().override is None
+
+
+# -- vacation -----------------------------------------------------------------------------------
+
+
+def start_vacation(controller, clock, hour=16, minute=30, days=0):
+    """A vacation from now until the given time (a day later with `days`)."""
+    until = dt.datetime.fromtimestamp(ts(NORMAL_DAY, hour, minute) + days * 86400, dt.UTC)
+    controller.set_override("off", until, "me", kind="vacation")
+    controller.tick()
+
+
+def test_a_vacation_switches_off_and_nothing_switches_it_on(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    assert controller.tick() == "start"
+    assert fake_shelly.output is True
+    clock.now += 120
+    start_vacation(controller, clock, days=3)
+    assert fake_shelly.output is False
+    assert any(
+        e.get("summary", "").startswith("Vacation: boiler switched off completely until")
+        for e in controller.snapshot().entries
+    )
+    # 14:00 and 03:00 two days on are cheap quarters that would switch it on.
+    at_time(clock, 14, 0)
+    controller.tick()
+    clock.set(ts(NORMAL_DAY, 3, 0) + 2 * 86400)
+    controller.tick()
+    assert fake_shelly.output is False
+    assert controller.snapshot().last_entry["rule"] == "override"
+
+
+def test_when_a_vacation_ends_the_boiler_heats_for_two_hours_whatever_the_price(
+    make_controller, fake_shelly, clock
+):
+    controller = make_controller(settings=LIVE)
+    controller.tick()
+    clock.now += 120
+    start_vacation(controller, clock, 16, 30)
+    assert fake_shelly.output is False
+    at_time(clock, 16, 30, 1)
+    assert controller.tick() == "override_end"
+    snap = controller.snapshot()
+    assert snap.override.kind == "heat_up"
+    assert snap.override.until == snap.override.set_at + HEAT_UP
+    assert fake_shelly.output is True
+    assert any(
+        e.get("summary", "").startswith("Vacation ended at 16:30; heating until 18:30 whatever")
+        for e in snap.entries
+    )
+    # 17:00 to 18:45 cost 30 ct, over the 25 ct switch-off line: the rules would switch off.
+    for hour, minute in ((17, 0), (17, 45), (18, 15)):
+        at_time(clock, hour, minute)
+        controller.tick()
+        assert fake_shelly.output is True
+        assert controller.snapshot().last_entry["rule"] == "override"
+    # Two hours after the end it is over, and the rules decide again.
+    at_time(clock, 18, 30, 5)
+    controller.tick()
+    snap = controller.snapshot()
+    assert snap.override is None
+    assert snap.last_entry["rule"] == "above_off"
+    assert fake_shelly.output is False
+
+
+def test_ending_a_vacation_early_starts_the_heat_up_at_once(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    controller.tick()
+    clock.now += 120
+    start_vacation(controller, clock, days=5)
+    assert fake_shelly.output is False
+    assert controller.clear_override("me") is True
+    snap = controller.snapshot()
+    assert snap.override.kind == "heat_up"
+    assert snap.override.until == dt.datetime.fromtimestamp(clock.now, dt.UTC) + HEAT_UP
+    assert any("Vacation ended early; heating until" in e.get("summary", "") for e in snap.entries)
+    # The relay was switched a moment ago, so the controller waits its 60 s, then retries.
+    controller.tick()
+    assert fake_shelly.output is False
+    assert controller.snapshot().last_entry["outcome"] == "held_back"
+    clock.now += 61
+    assert controller.tick() == "retry"
+    assert fake_shelly.output is True
+
+
+def test_the_heat_up_cannot_be_ended_or_replaced(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    controller.tick()
+    clock.now += 120
+    start_vacation(controller, clock, days=5)
+    controller.clear_override("me")
+    clock.now += 61
+    controller.tick()
+    until = dt.datetime.fromtimestamp(clock.now + 600, dt.UTC)
+    assert controller.override_lock().kind == "heat_up"
+    with pytest.raises(OverrideLocked):
+        controller.clear_override("me")
+    for action, kind in (("off", "manual"), ("on", "manual"), ("off", "vacation")):
+        with pytest.raises(OverrideLocked):
+            controller.set_override(action, until, "me", kind=kind)
+    controller.tick()
+    assert controller.snapshot().override.kind == "heat_up"
+    assert fake_shelly.output is True
+    # After the two hours everything works again.
+    clock.now += 2 * 3600 + 10
+    controller.tick()
+    assert controller.override_lock() is None
+    controller.set_override("on", dt.datetime.fromtimestamp(clock.now + 600, dt.UTC), "me")
+
+
+def test_a_running_vacation_is_not_replaced_but_can_be_ended(make_controller, clock):
+    controller = make_controller(settings=LIVE)
+    controller.tick()
+    start_vacation(controller, clock, days=5)
+    until = dt.datetime.fromtimestamp(clock.now + 600, dt.UTC)
+    assert controller.override_lock().kind == "vacation"
+    with pytest.raises(OverrideLocked):
+        controller.set_override("on", until, "me")
+    assert controller.clear_override("me") is True
+
+
+def test_a_plain_override_is_replaced_by_a_vacation(make_controller, clock):
+    controller = make_controller(settings=LIVE)
+    controller.tick()
+    until = dt.datetime.fromtimestamp(clock.now + 3600, dt.UTC)
+    controller.set_override("on", until, "me")
+    start_vacation(controller, clock, days=2)
+    assert controller.snapshot().override.kind == "vacation"
+
+
+def test_a_service_that_was_down_when_the_vacation_ended_still_heats_for_two_hours(
+    make_controller, fake_shelly, clock
+):
+    controller = make_controller(settings=LIVE)
+    controller.tick()
+    clock.now += 120
+    start_vacation(controller, clock, 16, 30)
+    # Down from 16:00 until 18:45, when the price is 30 ct.
+    at_time(clock, 18, 45, 5)
+    restarted = make_controller(settings=LIVE)
+    assert restarted.tick() == "start"
+    snap = restarted.snapshot()
+    assert snap.override.kind == "heat_up"
+    assert snap.override.set_at == dt.datetime.fromtimestamp(clock.now, dt.UTC)
+    assert snap.override.until == snap.override.set_at + HEAT_UP
+    assert fake_shelly.output is True
+
+
+def test_the_heat_up_survives_a_restart(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    controller.tick()
+    clock.now += 120
+    start_vacation(controller, clock, 16, 30)
+    at_time(clock, 16, 30, 1)
+    controller.tick()
+    at_time(clock, 17, 15)
+    restarted = make_controller(settings=LIVE)
+    restarted.tick()
+    assert restarted.snapshot().override.kind == "heat_up"
+    assert fake_shelly.output is True
+
+
+def test_a_vacation_works_in_shadow_mode_like_any_override(make_controller, fake_shelly, clock):
+    fake_shelly.output = True
+    controller = make_controller()
+    start_vacation(controller, clock, days=3)
+    assert fake_shelly.output is False
+    # The vacation ends at 16:30 on the third day.
+    clock.set(ts(NORMAL_DAY, 16, 30, 1) + 3 * 86400)
+    controller.tick()
+    assert controller.snapshot().override.kind == "heat_up"
+    assert fake_shelly.output is True
 
 
 # -- missing prices and a missing device --------------------------------------------------------

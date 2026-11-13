@@ -41,6 +41,13 @@ OVERRIDE_ACTIONS = ("on", "off")
 FACTOR_MIN = 0.5
 FACTOR_MAX = 3.0
 OVERRIDE_MAX = dt.timedelta(hours=24)
+# A vacation switches the boiler off completely, for up to this long.
+VACATION_MAX = dt.timedelta(days=60)
+# When a vacation ends, the boiler heats this long whatever the price, so the
+# water reaches a safe temperature again. Nothing shortens it.
+HEAT_UP = dt.timedelta(hours=2)
+# What an override is for: the owner's own, a vacation, or the heat-up after one.
+OVERRIDE_KINDS = ("manual", "vacation", "heat_up")
 
 # Every value the decision's `rule` can take; a bounded metric label.
 RULES = (
@@ -189,21 +196,31 @@ class Override:
     until: dt.datetime
     set_at: dt.datetime
     by: str | None = None
+    kind: str = "manual"
 
     @property
     def target(self) -> bool:
         return self.action == "on"
 
+    @property
+    def locked(self) -> bool:
+        """A vacation or its heat-up: only ending the vacation (or waiting) changes it."""
+        return self.kind != "manual"
+
     def active(self, now: dt.datetime) -> bool:
         return now < self.until
 
     def to_json(self) -> dict:
-        return {
+        data = {
             "action": self.action,
             "until": self.until.isoformat(),
             "set_at": self.set_at.isoformat(),
             "by": self.by,
         }
+        # Only when it is not the owner's plain override, so old state reads back as before.
+        if self.kind != "manual":
+            data["kind"] = self.kind
+        return data
 
     @classmethod
     def from_json(cls, data: object) -> Override:
@@ -214,11 +231,15 @@ class Override:
         if until.tzinfo is None or set_at.tzinfo is None:
             raise ValueError("override times need a UTC offset")
         by = data.get("by")
+        kind = data.get("kind", "manual")
+        if kind not in OVERRIDE_KINDS:
+            raise ValueError("not an override")
         return cls(
             str(data["action"]),
             until.astimezone(dt.UTC),
             set_at.astimezone(dt.UTC),
             by[:120] if isinstance(by, str) else None,
+            kind,
         )
 
 
@@ -242,7 +263,13 @@ def _next_wall_time(clock: dt.time, now: dt.datetime, tz: ZoneInfo) -> dt.dateti
     return ahead[0] if ahead else None
 
 
-def parse_until(value: object, now: dt.datetime, tz: ZoneInfo) -> dt.datetime:
+def parse_until(
+    value: object,
+    now: dt.datetime,
+    tz: ZoneInfo,
+    longest: dt.timedelta = OVERRIDE_MAX,
+    too_long: str = "An override can last at most 24 hours.",
+) -> dt.datetime:
     """An override end: an ISO time with its offset, or "HH:MM" (the next time the clock shows it).
 
     The page sends the ISO form, so a choice made on a page left open too long
@@ -274,9 +301,21 @@ def parse_until(value: object, now: dt.datetime, tz: ZoneInfo) -> dt.datetime:
             raise ValueError("Enter a time within the next 24 hours.") from None
     if until <= now:
         raise ValueError("That time has already passed. Pick a later one.")
-    if until - now > OVERRIDE_MAX:
-        raise ValueError("An override can last at most 24 hours.")
+    if until - now > longest:
+        raise ValueError(too_long)
     return until
+
+
+def parse_vacation_end(value: object, now: dt.datetime, tz: ZoneInfo) -> dt.datetime:
+    """The moment a vacation ends: a date and time ("2026-11-20T12:00", the page's field).
+
+    A bare clock time is refused: a vacation spans days, so the date matters.
+    Raises ValueError with a message for the page.
+    """
+    if not isinstance(value, str) or len(value.strip()) <= 5:
+        raise ValueError("Pick the date and time the boiler should start heating again.")
+    days = VACATION_MAX.days
+    return parse_until(value, now, tz, VACATION_MAX, f"A vacation can last at most {days} days.")
 
 
 # -- lines and decisions ------------------------------------------------------------------------
@@ -407,8 +446,21 @@ def until_text(until: dt.datetime, now: dt.datetime, tz: ZoneInfo) -> str:
     return f"{local:%a} {hhmm(local)}"
 
 
+def vacation_until_text(until: dt.datetime, now: dt.datetime, tz: ZoneInfo) -> str:
+    """When a vacation ends, with the date: a trip can span weeks, and "Tue" would not say which."""
+    local = until.astimezone(tz)
+    if local.date() == now.astimezone(tz).date():
+        return hhmm(local)
+    return f"{local:%a} {local.day} {local:%b} {hhmm(local)}"
+
+
 def explain_override(override: Override, tz: ZoneInfo, now: dt.datetime) -> str:
     until = until_text(override.until, now, tz)
+    if override.kind == "vacation":
+        until = vacation_until_text(override.until, now, tz)
+        return f"Vacation: the boiler is switched off completely until {until}."
+    if override.kind == "heat_up":
+        return f"Heating after the vacation until {until}, whatever the price."
     if override.action == "on":
         return f"Override: heat until {until}."
     return f"Override: keep off until {until}."

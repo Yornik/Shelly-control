@@ -444,6 +444,213 @@ def test_api_override(setup, fake_shelly):
     assert "until" in resp.get_json()["errors"]
 
 
+# -- vacation -----------------------------------------------------------------------------------
+
+VACATION = {
+    "csrf": TOKEN,
+    "vacation_day": "2026-11-03",
+    "vacation_time": "12:00",
+}
+CONFIRMED = {**VACATION, "confirm_vacation": "yes", "asked": "yes"}
+
+
+def dialog_of(body: str) -> str:
+    return body[body.index("<dialog") : body.index("</dialog>")]
+
+
+def test_a_vacation_is_not_started_without_the_confirmation(setup):
+    controller, client = setup()
+    resp = client.post("/vacation", data=VACATION, headers=HEADERS)
+    assert resp.status_code == 422
+    assert controller.snapshot().override is None
+    body = resp.get_data(as_text=True)
+    # Without the script this is the second step: the confirmation, open, with the choice kept.
+    dialog = dialog_of(body)
+    assert 'id="vacation-dialog"' in dialog.split(">")[0] + ">" and " open" in dialog.split(">")[0]
+    assert "Legionella" in dialog
+    assert "only safe to use after the boiler has fully heated up" in dialog
+    assert "2 hours whatever the price" in dialog
+    assert '<option value="2026-11-03" selected>' in body
+    assert '<option value="12:00" selected>' in body
+    # A first step is not an error.
+    assert "understand the water may be unsafe until" not in body
+
+
+def test_a_vacation_form_sent_without_the_tick_is_refused_with_a_reason(setup):
+    controller, client = setup()
+    resp = client.post("/vacation", data={**VACATION, "asked": "yes"}, headers=HEADERS)
+    assert resp.status_code == 422
+    assert controller.snapshot().override is None
+    assert "Tick the box to confirm that you understand" in dialog_of(resp.get_data(as_text=True))
+
+
+def test_a_confirmed_vacation_switches_off_and_is_shown(setup, fake_shelly):
+    fake_shelly.output = True
+    controller, client = setup()
+    resp = client.post("/vacation", data=CONFIRMED, headers=HEADERS)
+    assert resp.status_code == 303
+    assert resp.headers["Location"] == "/?notice=vacation#vacation"
+    override = controller.snapshot().override
+    assert (override.action, override.kind) == ("off", "vacation")
+    assert override.until == dt.datetime.fromtimestamp(ts(NORMAL_DAY, 12) + 7 * 86400, dt.UTC)
+    assert controller.tick() == "change"
+    assert fake_shelly.output is False
+    body = client.get("/?notice=vacation", headers=HEADERS).get_data(as_text=True)
+    vacation = body[body.index('id="vacation"') :]
+    assert "Vacation started." in vacation
+    assert "switched off completely until Tue 3 Nov 12:00." in vacation
+    assert "End vacation now" in vacation
+    assert "<dialog" not in vacation
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"vacation_day": "", "vacation_time": "12:00"}, "Pick the date and time"),
+        ({"vacation_day": "2026-10-27", "vacation_time": "11:00"}, "already passed"),
+        ({"vacation_day": "2026-12-31", "vacation_time": "12:00"}, "at most 60 days"),
+        ({"vacation_day": "next week", "vacation_time": "12:00"}, "ISO 8601"),
+    ],
+)
+def test_a_bad_vacation_end_is_explained_not_confirmed(setup, data, message):
+    controller, client = setup()
+    resp = client.post("/vacation", data={**CONFIRMED, **data}, headers=HEADERS)
+    assert resp.status_code == 422
+    assert controller.snapshot().override is None
+    body = resp.get_data(as_text=True)
+    assert message in body
+    assert 'id="err-vacation" role="alert"' in body
+    assert "<dialog" in body
+    assert " open" not in dialog_of(body).split(">")[0]
+
+
+def test_no_vacation_when_switching_is_off(setup):
+    controller, client = setup(allow_switching=False)
+    resp = client.post("/vacation", data=CONFIRMED, headers=HEADERS)
+    assert resp.status_code == 422
+    assert controller.snapshot().override is None
+
+
+def test_a_vacation_needs_the_csrf_token(setup):
+    controller, client = setup()
+    resp = client.post("/vacation", data={**CONFIRMED, "csrf": "wrong"}, headers=HEADERS)
+    assert resp.status_code == 403
+    assert controller.snapshot().override is None
+
+
+def test_ending_a_vacation_starts_the_heat_up_that_nothing_can_change(setup, fake_shelly, clock):
+    controller, client = setup()
+    client.post("/vacation", data=CONFIRMED, headers=HEADERS)
+    controller.tick()
+    # While it runs, no other override replaces it.
+    resp = client.post(
+        "/override", data={"csrf": TOKEN, "action": "on", "until": "18:00"}, headers=HEADERS
+    )
+    assert resp.status_code == 422
+    assert "A vacation is running" in resp.get_data(as_text=True)
+    assert controller.snapshot().override.kind == "vacation"
+    resp = client.post("/vacation", data=CONFIRMED, headers=HEADERS)
+    assert resp.status_code == 422
+    assert "A vacation is running" in resp.get_data(as_text=True)
+    # Ending it early starts the heat-up.
+    resp = client.post("/override/clear", data={"csrf": TOKEN}, headers=HEADERS)
+    assert resp.headers["Location"] == "/?notice=vacation_ended#vacation"
+    heat_up = controller.snapshot().override
+    assert heat_up.kind == "heat_up"
+    assert heat_up.until == dt.datetime.fromtimestamp(clock.now, dt.UTC) + dt.timedelta(hours=2)
+    body = client.get("/?notice=vacation_ended", headers=HEADERS).get_data(as_text=True)
+    vacation = body[body.index('id="vacation"') :]
+    assert "The boiler heats for 2 hours whatever the price" in vacation
+    assert "Heating after the vacation until 14:00, whatever the price." in vacation
+    assert "End vacation now" not in vacation
+    # And now it cannot be ended or replaced, by the page.
+    resp = client.post("/override/clear", data={"csrf": TOKEN}, headers=HEADERS)
+    assert resp.headers["Location"] == "/?notice=heat_locked#vacation"
+    for path, data in (
+        ("/override", {"csrf": TOKEN, "action": "off", "until": "13:00"}),
+        ("/vacation", CONFIRMED),
+    ):
+        resp = client.post(path, data=data, headers=HEADERS)
+        assert resp.status_code == 422
+        assert "heating after a vacation" in resp.get_data(as_text=True)
+    assert controller.snapshot().override == heat_up
+
+
+def test_api_vacation_needs_an_explicit_confirmation(setup):
+    controller, client = setup()
+    body = {"until": "2026-11-03T12:00"}
+    for sent in (
+        body,
+        {**body, "confirm": "yes"},
+        {**body, "confirm": 1},
+        {**body, "confirm": False},
+    ):
+        resp = client.post("/api/v1/vacation", json=sent, headers=api_headers())
+        assert resp.status_code == 422
+        assert "confirm" in resp.get_json()["errors"]
+    assert controller.snapshot().override is None
+    resp = client.post("/api/v1/vacation", json={**body, "confirm": True}, headers=api_headers())
+    assert resp.status_code == 200
+    assert resp.get_json()["kind"] == "vacation"
+    assert resp.get_json()["action"] == "off"
+    status = client.get("/api/v1/status", headers=api_headers()).get_json()
+    assert status["override"]["kind"] == "vacation"
+
+
+@pytest.mark.parametrize(
+    "until", ["18:00", "2026-12-31T12:00", "2026-10-27T11:00", "", None, 5, "tomorrow"]
+)
+def test_api_vacation_refuses_a_bad_end(setup, until):
+    controller, client = setup()
+    resp = client.post(
+        "/api/v1/vacation", json={"until": until, "confirm": True}, headers=api_headers()
+    )
+    assert resp.status_code == 422
+    assert "until" in resp.get_json()["errors"]
+    assert controller.snapshot().override is None
+
+
+def test_api_cannot_replace_or_end_a_vacation_heat_up(setup):
+    controller, client = setup()
+    client.post(
+        "/api/v1/vacation",
+        json={"until": "2026-11-03T12:00", "confirm": True},
+        headers=api_headers(),
+    )
+    resp = client.post(
+        "/api/v1/vacation",
+        json={"until": "2026-11-04T12:00", "confirm": True},
+        headers=api_headers(),
+    )
+    assert resp.status_code == 409
+    resp = client.post(
+        "/api/v1/override", json={"action": "on", "until": "18:00"}, headers=api_headers()
+    )
+    assert resp.status_code == 409
+    json_headers = api_headers(**{"Content-Type": "application/json"})
+    assert client.delete("/api/v1/override", headers=json_headers).get_json() == {"cleared": True}
+    assert controller.snapshot().override.kind == "heat_up"
+    resp = client.delete("/api/v1/override", headers=json_headers)
+    assert resp.status_code == 409
+    assert resp.get_json()["cleared"] is False
+    resp = client.post(
+        "/api/v1/override", json={"action": "off", "until": "13:00"}, headers=api_headers()
+    )
+    assert resp.status_code == 409
+    assert controller.snapshot().override.kind == "heat_up"
+
+
+def test_an_api_override_cannot_be_used_to_skip_the_vacation_confirmation(setup):
+    controller, client = setup()
+    resp = client.post(
+        "/api/v1/override",
+        json={"action": "off", "until": "2026-11-03T12:00"},
+        headers=api_headers(),
+    )
+    assert resp.status_code == 422
+    assert "at most 24 hours" in resp.get_json()["errors"]["until"]
+
+
 def test_api_plan(client):
     today = client.get("/api/v1/plan?day=today", headers=HEADERS).get_json()
     assert today["day"] == "2026-10-27"

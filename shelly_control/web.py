@@ -33,10 +33,17 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from prometheus_client.registry import CollectorRegistry
 from werkzeug.exceptions import HTTPException
 
-from .controller import Controller, Snapshot, prices_usable
+from .controller import Controller, OverrideLocked, Snapshot, prices_usable
 from .logs import event
-from .rules import OVERRIDE_ACTIONS, Settings, ct, parse_until, plan_days
-from .view import build_view
+from .rules import (
+    OVERRIDE_ACTIONS,
+    Settings,
+    ct,
+    parse_until,
+    parse_vacation_end,
+    plan_days,
+)
+from .view import HEAT_UP_HOURS, build_view
 
 LOG = logging.getLogger("shelly-control.web")
 
@@ -59,6 +66,16 @@ NOTICES = {
     "override": ("override", "Override set."),
     "cleared": ("override", "Override ended."),
     "no_override": ("override", "There was no override to end."),
+    "vacation": ("vacation", "Vacation started. The boiler is switched off completely."),
+    "vacation_ended": (
+        "vacation",
+        f"Vacation ended. The boiler heats for {HEAT_UP_HOURS} hours whatever the price, "
+        "so the water can reach a safe temperature.",
+    ),
+    "heat_locked": (
+        "vacation",
+        "The boiler is heating after the vacation and stays on until that time is over.",
+    ),
 }
 
 # Field names as the page labels them, and the control each error links to.
@@ -82,6 +99,17 @@ MAX_DECISIONS = 5000
 # Distinct rejected Host values logged, so a scanner cannot fill the log.
 MAX_LOGGED_HOSTS = 20
 
+CONFIRM_VACATION = (
+    "Tick the box to confirm that you understand the water may be unsafe until the boiler "
+    "has fully heated up again."
+)
+VACATION_RUNNING = (
+    "A vacation is running. End it first; the boiler then heats before anything else."
+)
+HEAT_UP_RUNNING = (
+    f"The boiler is heating after a vacation, for at least {HEAT_UP_HOURS} hours, so the water "
+    "can reach a safe temperature. It cannot be changed until that time is over."
+)
 SWITCHING_OFF = (
     "Switching is turned off for this installation. Set ALLOW_SWITCHING=true in its "
     "configuration first."
@@ -252,6 +280,7 @@ def create_app(
         override_error: str | None = None,
         notice: str | None = None,
         until: str | None = None,
+        vacation: dict[str, object] | None = None,
     ):
         snap = controller.snapshot()
         view = build_view(snap, tz, display_name)
@@ -274,6 +303,10 @@ def create_app(
                 override_error=override_error,
                 # Keep a refused choice selected when it is still on offer.
                 until_selected=until if until in options else view.override_default,
+                # A vacation that was asked for but not confirmed: the page asks again, with
+                # the day and time kept and the confirmation open.
+                vacation=vacation or {},
+                heat_up_hours=HEAT_UP_HOURS,
                 notice=text,
                 notice_section=section,
             ),
@@ -315,6 +348,8 @@ def create_app(
             message = "Pick heat or keep off."
         elif not snap.switching_allowed:
             message = SWITCHING_OFF
+        elif (held := controller.override_lock()) is not None:
+            message = VACATION_RUNNING if held.kind == "vacation" else HEAT_UP_RUNNING
         else:
             now = dt.datetime.fromtimestamp(controller.clock(), dt.UTC)
             try:
@@ -323,15 +358,67 @@ def create_app(
                 message = str(exc)
         if message:
             return page(422, override_error=message, until=chosen)
-        controller.set_override(action, until, _by())
+        try:
+            controller.set_override(action, until, _by())
+        except OverrideLocked as exc:
+            message = VACATION_RUNNING if exc.held.kind == "vacation" else HEAT_UP_RUNNING
+            return page(422, override_error=message, until=chosen)
         settle(snap.counters.evaluations)
         return redirect("/?notice=override#override", 303)
+
+    def _vacation_end(day: object, clock: object) -> str | None:
+        """The page's day and time as one ISO time, or None when either is missing."""
+        if isinstance(day, str) and isinstance(clock, str) and day.strip() and clock.strip():
+            return f"{day.strip()}T{clock.strip()}"
+        return None
+
+    @app.post("/vacation")
+    def vacation_form():
+        """Switch the boiler off completely, and only with the confirmation ticked."""
+        snap = controller.snapshot()
+        day, clock = request.form.get("vacation_day"), request.form.get("vacation_time")
+        kept = {"day": day, "time": clock}
+        message = None
+        if not snap.switching_allowed:
+            message = SWITCHING_OFF
+        elif (held := controller.override_lock()) is not None:
+            message = VACATION_RUNNING if held.kind == "vacation" else HEAT_UP_RUNNING
+        else:
+            now = dt.datetime.fromtimestamp(controller.clock(), dt.UTC)
+            try:
+                until = parse_vacation_end(_vacation_end(day, clock), now, tz)
+            except ValueError as exc:
+                message = str(exc)
+        if message:
+            return page(422, vacation={**kept, "error": message})
+        if request.form.get("confirm_vacation") != "yes":
+            # Without the script this is the second step: the same page, the confirmation open.
+            # With it, a missing tick is a form that was sent some other way.
+            asked = request.form.get("asked") == "yes"
+            return page(
+                422,
+                vacation={**kept, "confirm": True, "error": CONFIRM_VACATION if asked else None},
+            )
+        try:
+            controller.set_override("off", until, _by(), kind="vacation")
+        except OverrideLocked as exc:
+            message = VACATION_RUNNING if exc.held.kind == "vacation" else HEAT_UP_RUNNING
+            return page(422, vacation={**kept, "error": message})
+        settle(snap.counters.evaluations)
+        return redirect("/?notice=vacation#vacation", 303)
 
     @app.post("/override/clear")
     def override_clear_form():
         snap = controller.snapshot()
-        if controller.clear_override(_by()):
+        ending = snap.override is not None and snap.override.kind == "vacation"
+        try:
+            cleared = controller.clear_override(_by())
+        except OverrideLocked:
+            return redirect("/?notice=heat_locked#vacation", 303)
+        if cleared:
             settle(snap.counters.evaluations)
+            if ending:
+                return redirect("/?notice=vacation_ended#vacation", 303)
             return redirect("/?notice=cleared#override", 303)
         return redirect("/?notice=no_override#override", 303)
 
@@ -440,14 +527,45 @@ def create_app(
             until = parse_until(data.get("until"), now, tz)
         except ValueError as exc:
             return jsonify(errors={"until": str(exc)}), 422
-        override = controller.set_override(data["action"], until, _by())
+        try:
+            override = controller.set_override(data["action"], until, _by())
+        except OverrideLocked as exc:
+            held = VACATION_RUNNING if exc.held.kind == "vacation" else HEAT_UP_RUNNING
+            return jsonify(errors={"action": held}), 409
+        settle(snap.counters.evaluations)
+        return jsonify(override.to_json())
+
+    @app.post("/api/v1/vacation")
+    def api_vacation():
+        data = _json_body()
+        if not isinstance(data, dict):
+            abort(400, 'Send {"until": an ISO time, "confirm": true}.')
+        snap = controller.snapshot()
+        if not snap.switching_allowed:
+            return jsonify(errors={"until": SWITCHING_OFF}), 422
+        # The same confirmation as the page asks for, here as an explicit true.
+        if data.get("confirm") is not True:
+            return jsonify(errors={"confirm": CONFIRM_VACATION}), 422
+        now = dt.datetime.fromtimestamp(controller.clock(), dt.UTC)
+        try:
+            until = parse_vacation_end(data.get("until"), now, tz)
+        except ValueError as exc:
+            return jsonify(errors={"until": str(exc)}), 422
+        try:
+            override = controller.set_override("off", until, _by(), kind="vacation")
+        except OverrideLocked as exc:
+            held = VACATION_RUNNING if exc.held.kind == "vacation" else HEAT_UP_RUNNING
+            return jsonify(errors={"until": held}), 409
         settle(snap.counters.evaluations)
         return jsonify(override.to_json())
 
     @app.delete("/api/v1/override")
     def api_override_delete():
         snap = controller.snapshot()
-        cleared = controller.clear_override(_by())
+        try:
+            cleared = controller.clear_override(_by())
+        except OverrideLocked:
+            return jsonify(cleared=False, error=HEAT_UP_RUNNING), 409
         if cleared:
             settle(snap.counters.evaluations)
         return jsonify(cleared=cleared)

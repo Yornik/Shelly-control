@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 from .chart import ChartModel, build_chart, quarter_key, y_scale
 from .controller import Snapshot, prices_usable
 from .rules import (
+    HEAT_UP,
+    VACATION_MAX,
     ClosestCall,
     DayPlan,
     Lines,
@@ -23,6 +25,7 @@ from .rules import (
     next_changes,
     plan_days,
     until_text,
+    vacation_until_text,
 )
 
 # Below this the relay is on but the boiler draws nothing: its thermostat is satisfied.
@@ -104,8 +107,13 @@ class PageView:
     lines_today: Lines | None
     override_text: str | None
     override_after: str
+    # "", "manual", "vacation" or "heat_up": which override is in force now.
+    override_kind: str
     override_options: tuple[tuple[str, str], ...]
     override_default: str
+    vacation_days: tuple[tuple[str, str], ...]
+    vacation_default_day: str
+    vacation_default_time: str
     quarter_times: tuple[str, ...]
     log: tuple[LogRow, ...]
     status: tuple[StatusRow, ...]
@@ -138,6 +146,12 @@ def _ago(seconds: float) -> str:
         return f"{seconds // 60} min ago"
     return f"{seconds // 3600} h {seconds % 3600 // 60} min ago"
 
+
+HEAT_UP_HOURS = int(HEAT_UP.total_seconds() // 3600)
+AFTER_VACATION = (
+    f"Then the boiler heats for {HEAT_UP_HOURS} hours whatever the price, so the water can reach "
+    "a safe temperature, and the rules decide again."
+)
 
 AFTER_OVERRIDE = {
     "live": "Then the rules decide again.",
@@ -191,10 +205,15 @@ def _hero(snap: Snapshot, tz: ZoneInfo, plans: list[DayPlan], now: dt.datetime) 
         why = "Waiting for the first decision."
     elif decision.rule == "override":
         until = until_text(decision.override.until, now, tz)
-        what = "heat" if decision.override.action == "on" else "stay off"
-        why = (
-            f"Set by hand to {what} until {until}. {AFTER_OVERRIDE['shadow' if shadow else 'live']}"
-        )
+        after = AFTER_OVERRIDE["shadow" if shadow else "live"]
+        if decision.override.kind == "vacation":
+            until = vacation_until_text(decision.override.until, now, tz)
+            why = f"Vacation: the boiler is switched off completely until {until}. {AFTER_VACATION}"
+        elif decision.override.kind == "heat_up":
+            why = f"Heating after the vacation until {until}, whatever the price. {after}"
+        else:
+            what = "heat" if decision.override.action == "on" else "stay off"
+            why = f"Set by hand to {what} until {until}. {after}"
     elif decision.rule == "no_prices":
         # The banner above says why there is no price.
         why = decision.reason
@@ -457,6 +476,21 @@ def _until_options(now: dt.datetime, tz: ZoneInfo) -> tuple[tuple[tuple[str, str
     return tuple(options), default.isoformat()
 
 
+def _vacation_days(now: dt.datetime, tz: ZoneInfo) -> tuple[tuple[tuple[str, str], ...], str]:
+    """The days a vacation can end on, as (ISO date, label), and the default: a week from now.
+
+    Dropdowns, like the override's: the same on every phone. Together with the time
+    list they make the end; the server reads that again and checks the limit.
+    """
+    today = now.astimezone(tz).date()
+    days = []
+    for i in range(VACATION_MAX.days + 1):
+        day = today + dt.timedelta(days=i)
+        label = "Today" if i == 0 else "Tomorrow" if i == 1 else f"{day:%a %d %b}"
+        days.append((day.isoformat(), label))
+    return tuple(days), (today + dt.timedelta(days=7)).isoformat()
+
+
 def _empty_text(day: dt.date, today: dt.date, local_now: dt.datetime, any_prices: bool) -> str:
     if day == today:
         return "There are no prices for today yet. Nothing is switched until there are."
@@ -531,10 +565,22 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
     usable = prices_usable(snap, tz)
     override = snap.override
     override_text = None
+    override_kind = ""
+    override_after = AFTER_OVERRIDE["live" if snap.settings.mode == "live" else "shadow"]
     if override is not None and override.until > now:
-        what = "heat" if override.action == "on" else "keep off"
-        override_text = f"Set to {what} until {until_text(override.until, now, tz)}."
+        override_kind = override.kind
+        when = until_text(override.until, now, tz)
+        if override.kind == "vacation":
+            when = vacation_until_text(override.until, now, tz)
+            override_text = f"Vacation: the boiler is switched off completely until {when}."
+            override_after = AFTER_VACATION
+        elif override.kind == "heat_up":
+            override_text = f"Heating after the vacation until {when}, whatever the price."
+        else:
+            what = "heat" if override.action == "on" else "keep off"
+            override_text = f"Set to {what} until {when}."
     options, default_until = _until_options(now, tz)
+    vacation_days, vacation_default_day = _vacation_days(now, tz)
     live = snap.settings.mode == "live"
     if live and snap.switching_allowed:
         mode_label, mode_cls = "Live", "live"
@@ -555,9 +601,13 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
         key=key,
         lines_today=lines_for(snap.settings, snap.book, today, tz),
         override_text=override_text,
-        override_after=AFTER_OVERRIDE["live" if live else "shadow"],
+        override_after=override_after,
+        override_kind=override_kind,
         override_options=options,
         override_default=default_until,
+        vacation_days=vacation_days,
+        vacation_default_day=vacation_default_day,
+        vacation_default_time="12:00",
         quarter_times=tuple(f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)),
         log=tuple(_log(snap, tz, today)),
         status=tuple(_status(snap, tz, today)),

@@ -18,7 +18,9 @@ from conftest import (
 
 from shelly_control.prices import PriceBook, parse_prices
 from shelly_control.rules import (
+    HEAT_UP,
     RULES,
+    VACATION_MAX,
     Lines,
     Override,
     Settings,
@@ -29,6 +31,7 @@ from shelly_control.rules import (
     next_changes,
     parse_settings,
     parse_until,
+    parse_vacation_end,
     plan_days,
     rule_for,
 )
@@ -236,6 +239,80 @@ def test_an_expired_override_is_ignored():
     held = override("on", at(NORMAL_DAY, 18))
     decision = decide(Settings(), book, at(NORMAL_DAY, 18, 0, 1), True, held, TZ)
     assert decision.rule == "above_off"
+
+
+# -- vacation -----------------------------------------------------------------------------------
+
+
+def vacation(until: dt.datetime, kind: str = "vacation") -> Override:
+    return Override("off", until.astimezone(dt.UTC), at(NORMAL_DAY, 8), "owner", kind)
+
+
+def test_a_vacation_keeps_the_relay_off_even_at_a_negative_price():
+    book = book_of(make_day(NORMAL_DAY, flat(-0.05)))
+    held = vacation(at(NORMAL_DAY, 18) + dt.timedelta(days=7))
+    decision = decide(Settings(), book, at(NORMAL_DAY, 12), True, held, TZ)
+    assert (decision.rule, decision.target) == ("override", False)
+    assert decision.reason == (
+        "Vacation: the boiler is switched off completely until Tue 3 Nov 18:00."
+    )
+
+
+def test_the_heat_up_after_a_vacation_keeps_the_relay_on_at_the_dearest_price():
+    book = book_of(make_day(NORMAL_DAY))
+    held = Override("on", at(NORMAL_DAY, 19), at(NORMAL_DAY, 17), None, "heat_up")
+    decision = decide(Settings(), book, at(NORMAL_DAY, 17, 30), False, held, TZ)
+    # 30 ct is over the 25 ct switch-off line: any rule would switch off.
+    assert (decision.rule, decision.target) == ("override", True)
+    assert decision.reason == "Heating after the vacation until 19:00, whatever the price."
+
+
+def test_only_a_plain_override_is_unlocked():
+    until = at(NORMAL_DAY, 18)
+    assert override("on", until).locked is False
+    assert vacation(until).locked is True
+    assert vacation(until, "heat_up").locked is True
+
+
+def test_override_kinds_round_trip_and_old_state_reads_as_a_plain_override():
+    until = at(NORMAL_DAY, 18)
+    plain = override("on", until)
+    assert "kind" not in plain.to_json()
+    assert Override.from_json(plain.to_json()) == plain
+    for kind in ("vacation", "heat_up"):
+        held = vacation(until, kind)
+        assert held.to_json()["kind"] == kind
+        assert Override.from_json(held.to_json()) == held
+    assert Override.from_json({**plain.to_json()}).kind == "manual"
+    with pytest.raises(ValueError, match="not an override"):
+        Override.from_json({**plain.to_json(), "kind": "holiday"})
+
+
+def test_a_vacation_end_needs_a_date_and_stays_within_the_limit():
+    now = at(NORMAL_DAY, 12).astimezone(dt.UTC)
+    end = parse_vacation_end("2026-11-03T12:00", now, TZ)
+    assert end == at(NORMAL_DAY + dt.timedelta(days=7), 12).astimezone(dt.UTC)
+    with pytest.raises(ValueError, match="date and time"):
+        parse_vacation_end("18:00", now, TZ)
+    with pytest.raises(ValueError, match="date and time"):
+        parse_vacation_end(None, now, TZ)
+    with pytest.raises(ValueError, match="already passed"):
+        parse_vacation_end("2026-10-27T11:00", now, TZ)
+    last = (now + VACATION_MAX).astimezone(TZ)
+    parse_vacation_end(last.isoformat(), now, TZ)
+    too_far = (now + VACATION_MAX + dt.timedelta(minutes=1)).astimezone(TZ)
+    with pytest.raises(ValueError, match="at most 60 days"):
+        parse_vacation_end(too_far.isoformat(), now, TZ)
+
+
+def test_an_override_still_lasts_at_most_a_day():
+    now = at(NORMAL_DAY, 12).astimezone(dt.UTC)
+    with pytest.raises(ValueError, match="at most 24 hours"):
+        parse_until("2026-10-29T12:00", now, TZ)
+
+
+def test_the_heat_up_lasts_at_least_two_hours():
+    assert HEAT_UP >= dt.timedelta(hours=2)
 
 
 # -- summer time --------------------------------------------------------------------------------

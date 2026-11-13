@@ -237,6 +237,19 @@ p.error-summary { padding: 6px 10px; }
 .until { display: flex; flex-direction: column; gap: 4px; font-weight: 650; }
 .until select { max-width: 14rem; }
 .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.buttons.single { grid-template-columns: 1fr; }
+.when { display: flex; gap: 8px; flex-wrap: wrap; }
+.when select { max-width: none; }
+/* The vacation confirmation: a popup with the script, an open panel in the page without it. */
+.confirm-dialog {
+  max-width: 32rem; padding: 18px 20px; color: var(--ink); background: var(--surface);
+  border: 2px solid var(--error); border-radius: var(--radius-panel);
+}
+.confirm-dialog:not(:modal) { position: static; margin: 12px 0 0; }
+.confirm-dialog::backdrop { background: rgba(14, 19, 28, 0.6); }
+.confirm-dialog h3 { margin: 0 0 8px; font-size: 1.125rem; }
+.confirm-dialog p { margin: 0 0 10px; }
+.confirm-dialog .risk { padding: 8px 10px; background: var(--error-wash); border-radius: var(--radius-control); }
 .form { display: grid; gap: 16px; max-width: 30rem; }
 .field { margin: 0; padding: 0; border: 0; min-width: 0; }
 .field > label, legend { font-weight: 650; display: block; margin-bottom: 4px; padding: 0; }
@@ -265,6 +278,12 @@ input[type="checkbox"], input[type="radio"] {
   background: transparent; color: var(--ink); cursor: pointer;
 }
 .btn.primary { background: var(--cobalt); border-color: var(--cobalt); color: var(--on-cobalt); }
+/* A link that looks like a button (the dialog's Cancel). */
+a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; box-sizing: border-box; }
+/* Switching the boiler off completely: the outline says "careful", the filled one is the point of no return. */
+.btn.danger { border-color: var(--error); color: var(--error); }
+.confirm-dialog .btn.danger { background: var(--error); color: var(--page); }
+.confirm-dialog .btn.danger:disabled { background: transparent; color: var(--error); }
 .btn:disabled, input:disabled + *, select:disabled { cursor: not-allowed; opacity: 0.55; }
 :focus-visible { outline: 3px solid var(--cobalt); outline-offset: 2px; }
 

@@ -71,6 +71,46 @@ def test_an_override_is_explained(snapshot, make_controller):
     assert view.override_text == "Set to keep off until 18:00."
 
 
+def test_a_vacation_and_its_heat_up_are_explained(snapshot):
+    snap = snapshot(12)
+    until = at(NORMAL_DAY, 18).astimezone(dt.UTC) + dt.timedelta(days=7)
+    held = Override("off", until, at(NORMAL_DAY, 12), None, "vacation")
+    decision = replace(snap.decision, rule="override", action="off", target=False, override=held)
+    view = build_view(replace(snap, decision=decision, override=held), TZ, "Boiler")
+    assert view.override_kind == "vacation"
+    assert (
+        view.override_text
+        == "Vacation: the boiler is switched off completely until Tue 3 Nov 18:00."
+    )
+    assert "Then the boiler heats for 2 hours whatever the price" in view.override_after
+    assert view.hero.why.startswith(
+        "Vacation: the boiler is switched off completely until Tue 3 Nov"
+    )
+    heat_up = Override(
+        "on", at(NORMAL_DAY, 14).astimezone(dt.UTC), at(NORMAL_DAY, 12), None, "heat_up"
+    )
+    decision = replace(snap.decision, rule="override", action="on", target=True, override=heat_up)
+    view = build_view(replace(snap, decision=decision, override=heat_up), TZ, "Boiler")
+    assert view.override_kind == "heat_up"
+    assert view.override_text == "Heating after the vacation until 14:00, whatever the price."
+    assert view.hero.why == (
+        "Heating after the vacation until 14:00, whatever the price. Then the rules decide again."
+    )
+
+
+def test_the_vacation_days_run_from_today_to_the_limit(snapshot):
+    view = build_view(snapshot(12), TZ, "Boiler")
+    days = [value for value, _ in view.vacation_days]
+    assert days[0] == "2026-10-27"
+    assert days[-1] == "2026-12-26"
+    assert len(days) == 61
+    assert view.vacation_days[0][1] == "Today"
+    assert view.vacation_days[1][1] == "Tomorrow"
+    assert view.vacation_days[2][1] == "Thu 29 Oct"
+    assert view.vacation_default_day == "2026-11-03"
+    assert view.override_kind == ""
+
+
 def test_a_failed_switch_is_shown_under_the_sentence(snapshot):
     snap = snapshot(12)
     entry = dict(snap.last_entry, outcome="failed", error="Sent on, but the relay is still off.")
