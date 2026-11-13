@@ -39,6 +39,13 @@ def test_no_file_means_the_defaults(store):
     assert not (store.dir / STATE_FILE).exists()
 
 
+@pytest.mark.parametrize("kind", ["vacation", "heat_up"])
+def test_a_vacation_and_its_heat_up_survive_a_restart(store, kind):
+    held = Override("off", at(NORMAL_DAY, 18).astimezone(dt.UTC), at(NORMAL_DAY, 12), None, kind)
+    store.save_state(Settings(), held, None)
+    assert store.load_state(Settings()).override == held
+
+
 def test_settings_and_override_round_trip(store):
     settings = Settings(mode="live", on_factor=1.12, morning_start=dt.time(4, 45))
     held = Override("off", at(NORMAL_DAY, 18).astimezone(dt.UTC), at(NORMAL_DAY, 12), "me")

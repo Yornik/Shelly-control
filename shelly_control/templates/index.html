@@ -22,6 +22,11 @@
 {%- endif %}
 {%- endmacro -%}
 
+{#- The boost knob is on the boiler: the service cannot turn it, so it says so. -#}
+{%- macro boost_tip() -%}
+<strong>Turn the boost on when you are home.</strong> If your boiler has a boost knob, turn it to its maximum (on a Duo: 120 minutes). That switches on the second heating element (on an 80 litre Duo: 2750 W instead of 1000 W), and the heating time above is only enough with it: without the boost an 80 litre Duo needs about 7 hours to reach 85&nbsp;°C. The knob is on the boiler; this service cannot turn it. If the water is not hot when the heating time is over, use Override to heat until it is.
+{%- endmacro -%}
+
 {%- macro quarter_select(name, label, selected) -%}
 <label for="{{ name }}">{{ label }}</label>
 <select id="{{ name }}" name="{{ name }}"{% if errors[name] %} aria-invalid="true" aria-describedby="err-{{ name }}"{% endif %}>
@@ -96,7 +101,12 @@
 <section id="override" class="sec" aria-labelledby="h-override">
   <h2 id="h-override">Override</h2>
   {{- notice_here("override") }}
-  {%- if v.override_text %}
+  {%- if v.override_kind in ("vacation", "heat_up") %}
+  <p class="help">The boiler is {% if v.override_kind == "vacation" %}on vacation{% else %}heating after a vacation{% endif %}, which goes before everything else. See Vacation below.</p>
+  {%- if override_error %}
+  <p class="field-error error-summary" id="err-override" role="alert" tabindex="-1">{{ override_error }}</p>
+  {%- endif %}
+  {%- elif v.override_text %}
   <p class="override-now">{{ v.override_text }} {{ v.override_after }}</p>
   <form method="post" action="/override/clear">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -130,6 +140,78 @@
       <button name="action" value="on" class="btn primary"{% if not v.switching_allowed %} disabled{% endif %}>Heat until then</button>
       <button name="action" value="off" class="btn"{% if not v.switching_allowed %} disabled{% endif %}>Keep off until then</button>
     </div>
+  </form>
+  {%- endif %}
+</section>
+
+<section id="vacation" class="sec" aria-labelledby="h-vacation">
+  <h2 id="h-vacation">Vacation</h2>
+  {{- notice_here("vacation") }}
+  {%- if v.override_kind == "vacation" %}
+  <p class="override-now">{{ v.override_text }} {{ v.override_after }}</p>
+  <form method="post" action="/override/clear">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn">End vacation now</button>
+  </form>
+  <p class="help">Ending it early starts the heating at once. The water is only safe to use once the boiler has fully heated up again.</p>
+  <p class="help tip">{{ boost_tip() }}</p>
+  {%- if vacation.error %}
+  <p class="field-error error-summary" id="err-vacation" role="alert" tabindex="-1">{{ vacation.error }}</p>
+  {%- endif %}
+  {%- elif v.override_kind == "heat_up" %}
+  <p class="override-now">{{ v.override_text }} {{ v.override_after }}</p>
+  <p class="help">The boiler stays on after a vacation whatever the price, and nothing can change that until this time is over. The water is only safe to use once the boiler has fully heated up to its safe temperature: check that it has before you use it.</p>
+  <p class="help tip">{{ boost_tip() }}</p>
+  {%- if vacation.error %}
+  <p class="field-error error-summary" id="err-vacation" role="alert" tabindex="-1">{{ vacation.error }}</p>
+  {%- endif %}
+  {%- else %}
+  <p class="help">Going away? Switch the boiler off completely until the day and time you pick. No rule switches it on while it lasts, not even a negative price. When the vacation ends, the boiler heats for {{ heat_up_text }} whatever the price.</p>
+  {%- if not v.switching_allowed %}
+  <p class="help">Switching is turned off for this installation (ALLOW_SWITCHING), so there is no vacation.</p>
+  {%- endif %}
+  <form method="post" action="/vacation#err-vacation" class="override-form" id="vacation-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="until">
+      <label for="vacation_day">Start heating again on</label>
+      <div class="when">
+        <select id="vacation_day" name="vacation_day"{% if vacation.error and not vacation.confirm %} aria-invalid="true" aria-describedby="err-vacation"{% endif %}{% if not v.switching_allowed %} disabled{% endif %}>
+          {%- for value, label in v.vacation_days %}
+          <option value="{{ value }}"{% if value == (vacation.day or v.vacation_default_day) %} selected{% endif %}>{{ label }}</option>
+          {%- endfor %}
+        </select>
+        <label for="vacation_time" class="sr-only">Time</label>
+        <select id="vacation_time" name="vacation_time"{% if not v.switching_allowed %} disabled{% endif %}>
+          {%- for t in v.quarter_times %}
+          <option value="{{ t }}"{% if t == (vacation.time or v.vacation_default_time) %} selected{% endif %}>{{ t }}</option>
+          {%- endfor %}
+        </select>
+      </div>
+    </div>
+    <p class="hint">Pick a few hours before you are back, so the hot water is ready.</p>
+    {%- if vacation.error and not vacation.confirm %}
+    <p class="field-error error-summary" id="err-vacation" role="alert" tabindex="-1">{{ vacation.error }}</p>
+    {%- endif %}
+    <div class="buttons single">
+      <button class="btn danger" id="vacation-start"{% if not v.switching_allowed %} disabled{% endif %}>Switch off completely…</button>
+    </div>
+    {#- The confirmation. With the script it opens as a popup over the page; without it
+         the server sends the page back with it open, so it can never be skipped. #}
+    <dialog id="vacation-dialog" class="confirm-dialog" aria-labelledby="vd-title"{% if vacation.confirm %} open{% endif %}>
+      <h3 id="vd-title">Switch the boiler off completely?</h3>
+      <p>The boiler will not heat at all until the time you picked. No rule switches it on, not even a negative price, and the water cools down to room temperature.</p>
+      <p class="risk"><strong>The water may be unsafe afterwards.</strong> Legionella bacteria can grow in water that stands lukewarm for days. Breathing in their droplets, for instance in shower steam, can cause a serious lung infection. Heating the water to about 60&nbsp;°C kills them. This service cannot measure the water temperature.</p>
+      <p>When the vacation ends, the boiler heats for {{ heat_up_text }} whatever the price. <strong>The water is only safe to use after the boiler has fully heated up to its safe temperature again.</strong> Check that it has before you shower or use the hot tap; if you are not sure, wait. How long that takes depends on your boiler.</p>
+      <p class="tip">{{ boost_tip() }}</p>
+      {%- if vacation.confirm and vacation.error %}
+      <p class="field-error error-summary" id="err-vacation" role="alert" tabindex="-1">{{ vacation.error }}</p>
+      {%- endif %}
+      <label class="check confirm"><input type="checkbox" id="confirm_vacation" name="confirm_vacation" value="yes"> I understand: the water may be unsafe until the boiler has fully heated up to a safe temperature again.</label>
+      <div class="buttons">
+        <button class="btn danger" id="vacation-confirm" name="asked" value="yes">Switch off completely</button>
+        <a class="btn" id="vacation-cancel" href="/#vacation">Cancel</a>
+      </div>
+    </dialog>
   </form>
   {%- endif %}
 </section>

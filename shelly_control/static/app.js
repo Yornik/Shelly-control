@@ -118,6 +118,43 @@
     });
   }
 
+  // Switching the boiler off for a vacation asks first, in a popup. Without this script the
+  // server sends the page back with the same question open, and it refuses the request
+  // without the tick either way: the confirmation never depends on this file.
+  var vacationForm = document.getElementById("vacation-form");
+  var vacationDialog = document.getElementById("vacation-dialog");
+  if (vacationForm && vacationDialog && typeof vacationDialog.showModal === "function") {
+    var tick = document.getElementById("confirm_vacation");
+    var confirmButton = document.getElementById("vacation-confirm");
+    var cancelLink = document.getElementById("vacation-cancel");
+    var startButton = document.getElementById("vacation-start");
+    var syncConfirm = function () {
+      confirmButton.disabled = !tick.checked;
+    };
+    var openDialog = function () {
+      // Server-opened (no script) is a panel in the page: make it a real popup.
+      if (vacationDialog.open) vacationDialog.close();
+      syncConfirm();
+      vacationDialog.showModal();
+      // The safe choice has the focus, not the one that switches the boiler off.
+      cancelLink.focus();
+    };
+    tick.addEventListener("change", syncConfirm);
+    vacationForm.addEventListener("submit", function (e) {
+      if (e.submitter === confirmButton) return;
+      e.preventDefault();
+      openDialog();
+    });
+    cancelLink.addEventListener("click", function (e) {
+      e.preventDefault();
+      tick.checked = false;
+      vacationDialog.close();
+      startButton.focus();
+    });
+    if (vacationDialog.hasAttribute("open")) openDialog();
+    else syncConfirm();
+  }
+
   // A page left open shows an old decision after a while. Reload it every five
   // minutes, but only the plain page, and never while someone is using it: a
   // form being filled in, a table or explanation opened, the chart explored.
@@ -139,7 +176,7 @@
   function busy() {
     var active = document.activeElement;
     if (active && active !== document.body && active !== document.documentElement) return true;
-    if (document.querySelector("details[open]")) return true;
+    if (document.querySelector("details[open], dialog[open]")) return true;
     var readouts = document.querySelectorAll(".readout");
     for (var i = 0; i < readouts.length; i++) {
       if (!readouts[i].hidden) return true;

@@ -52,6 +52,7 @@ from .prices import (
     merge,
 )
 from .rules import (
+    HEAT_UP,
     Decision,
     Override,
     Settings,
@@ -59,6 +60,7 @@ from .rules import (
     lines_for,
     parse_settings,
     until_text,
+    vacation_until_text,
 )
 from .shelly import (
     SHELLY_ERROR_REASONS,
@@ -110,6 +112,14 @@ _SETTING_LABELS = {
     "negative_enabled": "Negative prices rule",
     "average_window": "Average",
 }
+
+
+class OverrideLocked(Exception):
+    """A vacation or its heat-up is in force, and nothing may replace or end it."""
+
+    def __init__(self, held: Override):
+        super().__init__(held.kind)
+        self.held = held
 
 
 def _due(last: float | None, now: float, interval: float) -> bool:
@@ -325,25 +335,67 @@ class Controller:
         self.request_evaluation()
         return new, {}
 
-    def set_override(self, action: str, until: dt.datetime, by: str | None) -> Override:
+    def set_override(
+        self, action: str, until: dt.datetime, by: str | None, kind: str = "manual"
+    ) -> Override:
+        """Start an override. A vacation or its heat-up is not replaced: see `override_lock`."""
         now = dt.datetime.fromtimestamp(self.clock(), dt.UTC)
-        override = Override(action, until.astimezone(dt.UTC), now, by)
+        override = Override(action, until.astimezone(dt.UTC), now, by, kind)
         with self._lock:
+            held = self._locked_override(now)
+            if held is not None:
+                raise OverrideLocked(held)
             self._override = override
             when = until_text(override.until, now, self.tz)
-            summary = f"Override: {'heat' if action == 'on' else 'keep off'} until {when}"
+            if kind == "vacation":
+                when = vacation_until_text(override.until, now, self.tz)
+                summary = f"Vacation: boiler switched off completely until {when}"
+            else:
+                summary = f"Override: {'heat' if action == 'on' else 'keep off'} until {when}"
             self._change("override", summary, by, override=override.to_json())
         self.request_evaluation()
         return override
 
     def clear_override(self, by: str | None) -> bool:
+        """End the override early. Ending a vacation starts the heat-up; the heat-up cannot end."""
+        now = dt.datetime.fromtimestamp(self.clock(), dt.UTC)
         with self._lock:
             if self._override is None:
                 return False
-            self._override = None
-            self._change("override", f"Override ended early; {self._after_override()}", by)
+            if self._override.kind == "heat_up" and self._override.active(now):
+                raise OverrideLocked(self._override)
+            if self._override.kind == "vacation":
+                self._start_heat_up(now, "Vacation ended early", by)
+            else:
+                self._override = None
+                self._change("override", f"Override ended early; {self._after_override()}", by)
         self.request_evaluation()
         return True
+
+    def override_lock(self) -> Override | None:
+        """The vacation or heat-up in force now, which no new override may replace."""
+        now = dt.datetime.fromtimestamp(self.clock(), dt.UTC)
+        with self._lock:
+            return self._locked_override(now)
+
+    def _locked_override(self, now: dt.datetime) -> Override | None:
+        held = self._override
+        if held is not None and held.locked and held.active(now):
+            return held
+        return None
+
+    def _start_heat_up(self, now: dt.datetime, why: str, by: str | None) -> None:
+        """A vacation is over: heat for HEAT_UP whatever the price, then the rules decide again."""
+        until = now + HEAT_UP
+        self._override = Override("on", until, now, by, "heat_up")
+        when = until_text(until, now, self.tz)
+        self._change(
+            "override",
+            f"{why}; heating until {when} whatever the price, so the water can reach a safe "
+            "temperature",
+            by,
+            override=self._override.to_json(),
+        )
 
     def _after_override(self) -> str:
         """What happens to the relay when an override ends, for the log."""
@@ -518,10 +570,15 @@ class Controller:
         with self._lock:
             if self._override is not None and not self._override.active(moment):
                 local = until_text(self._override.until, moment, self.tz)
-                self._override = None
-                self._change(
-                    "override", f"Override ended at {local}; {self._after_override()}", None
-                )
+                if self._override.kind == "vacation":
+                    # Counted from now, not from the planned end: a service that was down
+                    # at that moment still heats for the full time.
+                    self._start_heat_up(moment, f"Vacation ended at {local}", None)
+                else:
+                    self._override = None
+                    self._change(
+                        "override", f"Override ended at {local}; {self._after_override()}", None
+                    )
             settings, override = self._settings, self._override
 
         relay, read_error = self._read_relay(now)

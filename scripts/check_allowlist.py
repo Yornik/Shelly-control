@@ -65,10 +65,12 @@ ROUTES = frozenset(
         "/settings",
         "/override",
         "/override/clear",
+        "/vacation",
         "/api/v1/status",
         "/api/v1/plan",
         "/api/v1/settings",
         "/api/v1/override",
+        "/api/v1/vacation",
         "/api/v1/decisions",
         "/metrics",
         "/healthz",
@@ -79,6 +81,9 @@ ROUTES = frozenset(
         "/?notice=override#override",
         "/?notice=cleared#override",
         "/?notice=no_override#override",
+        "/?notice=vacation#vacation",
+        "/?notice=vacation_ended#vacation",
+        "/?notice=heat_locked#vacation",
     }
 )
 ALLOWED_PATHS = {
