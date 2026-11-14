@@ -94,6 +94,7 @@ decides:
 | # | Rule | Default | The live script (`boiler2.sh`) |
 |---|---|---|---|
 | 1 | **Override**: on or off until a time you pick, then back to the rules. A **vacation** is an override that keeps the boiler off for up to 60 days, and ends with a 2.5-hour heat-up (below) | none | (none) |
+| 1a | **Legionella guard**: the water was not fully hot for too long, heat whatever the price until the thermostat stops (below) | 24 hours | (none: the night tariff did this) |
 | 2 | **No usable price**: no price for this quarter, or not all of today's prices | always | no current price: exits without acting |
 | 3 | **Negative prices**: below zero, heat | on | `price < 0 → on` |
 | 4 | **Morning top-up**: inside the window and under the morning line, heat | on, the 05:00 quarter (05:00 to 05:15), line 1.25 × average | `05:00 and price < 1.25 × average → on` |
@@ -136,6 +137,45 @@ reproduce none of the five. The replay is a test:
 [`tests/test_rules.py`](tests/test_rules.py) runs it on
 [`tests/fixtures/replay_2026-10-20_to_24.json`](tests/fixtures/replay_2026-10-20_to_24.json)
 (prices only), and checks these ranges.
+
+**Legionella guard.** Legionella bacteria grow in water from 25 to 45 °C and
+die above 60 °C. The boiler's own thermostat (position 3 is about 85 °C) kills
+them every time the water is fully hot, so what matters is how long the water
+may go without being fully hot. Before this service, the boiler heated only on
+the night tariff: the grid's TF signal switched it on from 23:00 to 07:00 on
+weekdays (and most of the weekend). It was off 16 hours a day, but fully hot
+every night: at most about 24 hours between two full heats. The guard keeps
+that promise with any prices:
+
+- **Fully hot** means: the relay is on and the boiler draws less than 20 W.
+  The thermostat has then stopped the element (1100 W while it heats). The
+  service reads the power at every evaluation, in shadow mode too.
+- When the water was last fully hot more than **24 hours** ago (the page sets
+  6 to 72 hours, or 0 to turn the guard off), the relay switches on whatever
+  the price, also without prices, until the thermostat stops. Then the rules
+  decide again.
+- An override goes first, a **vacation** included: starting one, you confirm
+  that the water may be unsafe, and its 2.5-hour heat-up follows. A manual
+  override lasts at most 24 hours.
+- In shadow mode the guard switches nothing, as the other rules.
+- If the boiler still draws power after 8 hours of the guard, the water counts
+  as hot and the log has a `guard_gave_up` warning: without the boost the Duo
+  heats from cold in about 7 hours, so a thermostat that never stops is a
+  fault, not cold water.
+- After a restart the guard reads the last fully hot time from the decision
+  log. Before the first hot reading, it counts from the first evaluation that
+  recorded the power, so a restart never puts it off.
+
+The numbers, for the 80 litre Duo: heating water takes 80 kg × 4.186 kJ/(kg K)
+= 0.093 kWh per degree. From 10 to 85 °C that is 7.0 kWh, about 6.3 hours at
+1.1 kW. A full tank loses roughly 1 to 1.5 kWh a day standing, about 0.5 °C an
+hour, so 16 hours off cools 85 °C water to about 77 °C: still safe. A shower
+that replaces 40 litres with cold water needs about 3.5 kWh, or 3.2 hours, to
+heat again. With the default lines the boiler is on 17.5 to 24 hours a day
+(the replay of 20 to 24 October), and the longest time off was 8.75 hours, so
+the guard should rarely act. The metric
+`shelly_control_water_hot_timestamp_seconds` shows when the water was last
+fully hot.
 
 **Vacation.** For a trip, the page can switch the boiler off completely until a
 day and time you pick, at most 60 days away. It is an override, so no rule
@@ -288,7 +328,7 @@ exports those.
 | `shelly_control_live` | | `1` in live mode, `0` in shadow mode |
 | `shelly_control_switching_allowed` | | `1` if `ALLOW_SWITCHING` allows switching at all |
 | `shelly_control_decision_action` | `action` | `1` for the latest decision's action (`on`, `off`, `keep`), `0` for the others |
-| `shelly_control_decision_rule` | `rule` | `1` for the rule that decided: `override`, `no_prices`, `negative`, `no_lines`, `morning`, `below_on`, `above_off`, `between` |
+| `shelly_control_decision_rule` | `rule` | `1` for the rule that decided: `override`, `hot_guard`, `no_prices`, `negative`, `no_lines`, `morning`, `below_on`, `above_off`, `between` |
 | `shelly_control_target_on` | | `1` if the decision wants the relay on, `0` off. Absent while unknown. |
 | `shelly_control_price_per_kwh` | `kind` | The decision's inputs: `slot` (this quarter's price), `average`, `on_line`, `off_line`, `morning_line` |
 | `shelly_control_morning_window` | | `1` if this quarter is inside the enabled morning window |
@@ -298,6 +338,8 @@ exports those.
 | `shelly_control_relay_read_success` | | `1` if the last read of the relay worked |
 | `shelly_control_relay_last_read_timestamp_seconds` | | Time of the last good read |
 | `shelly_control_last_evaluation_timestamp_seconds` | | Time of the last decision |
+| `shelly_control_water_hot_timestamp_seconds` | | Time the water was last fully hot: relay on, under 20 W |
+| `shelly_control_hot_guard_limit_seconds` | | The Legionella guard's limit; 0 when it is off |
 | `shelly_control_prices_up` | | `1` if the last read from the exporter worked |
 | `shelly_control_prices_usable` | | `1` if the prices cover this quarter and all of its day |
 | `shelly_control_prices_last_success_timestamp_seconds` | | Time of the last good read from the exporter |

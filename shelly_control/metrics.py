@@ -151,6 +151,17 @@ class ControlCollector:
             "Unix time of the latest successful read of the relay.",
             snap.relay_read_at,
         )
+        yield from _gauge(
+            "shelly_control_water_hot_timestamp_seconds",
+            "Unix time the water was last at the thermostat's temperature: relay on, almost no "
+            "power. The Legionella guard heats when this is older than its limit.",
+            snap.last_hot.timestamp() if snap.last_hot else None,
+        )
+        yield from _gauge(
+            "shelly_control_hot_guard_limit_seconds",
+            "The Legionella guard's limit; 0 means the guard is off.",
+            float(snap.settings.hot_every_hours * 3600),
+        )
 
     def _prices(self, snap: Snapshot) -> Iterator[Metric]:
         yield from _gauge(

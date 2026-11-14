@@ -25,6 +25,7 @@ FORM = {
     "morning_factor": "1.25",
     "negative_enabled": "on",
     "average_window": "day",
+    "hot_every_hours": "24",
     "mode": "shadow",
 }
 
@@ -124,6 +125,18 @@ def test_an_unticked_box_turns_a_rule_off(setup):
     form = {k: v for k, v in FORM.items() if k != "negative_enabled"}
     client.post("/settings", data=form, headers=HEADERS)
     assert controller.snapshot().settings.negative_enabled is False
+
+
+def test_the_page_sets_the_legionella_guard(setup):
+    controller, client = setup()
+    page = client.get("/", headers=HEADERS).get_data(as_text=True)
+    assert 'id="hot_every_hours"' in page
+    assert "Legionella guard" in page
+    client.post("/settings", data=dict(FORM, hot_every_hours="12"), headers=HEADERS)
+    assert controller.snapshot().settings.hot_every_hours == 12
+    resp = client.post("/settings", data=dict(FORM, hot_every_hours="3"), headers=HEADERS)
+    assert "Enter whole hours from 6 to 72" in resp.get_data(as_text=True)
+    assert controller.snapshot().settings.hot_every_hours == 12
 
 
 def test_saving_the_same_rules_says_nothing_changed(setup):

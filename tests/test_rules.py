@@ -514,7 +514,7 @@ def test_ct_uses_a_real_minus_sign():
 
 
 def test_every_rule_name_is_in_the_bounded_list():
-    names = {"override", "no_prices", "negative", "no_lines", "morning", "below_on"}
+    names = {"override", "hot_guard", "no_prices", "negative", "no_lines", "morning", "below_on"}
     assert names | {"above_off", "between"} == set(RULES)
 
 
@@ -635,3 +635,90 @@ def test_closest_call_on_the_line_has_no_margin():
     assert plans[0].lines.off_line == 0.253
     call = closest_call(plans, Settings(), True, TZ)
     assert (call.slot.start, call.margin) == (at(NORMAL_DAY, 18), 0)
+
+
+# -- the Legionella guard -----------------------------------------------------------------------
+
+
+def _guard_book():
+    return book_of(make_day(NORMAL_DAY, flat(0.40)))
+
+
+def test_the_guard_heats_when_the_water_was_not_hot_for_too_long():
+    now = at(NORMAL_DAY, 18, 0, 5)
+    decision = decide(Settings(), _guard_book(), now, False, None, TZ, now - dt.timedelta(hours=24))
+    assert decision.rule == "hot_guard"
+    assert decision.action == "on"
+    assert decision.target is True
+    assert "Legionella" in decision.reason
+    assert "24 hours" in decision.reason
+
+
+def test_the_guard_waits_until_the_limit():
+    now = at(NORMAL_DAY, 18, 0, 5)
+    last_hot = now - dt.timedelta(hours=23, minutes=59)
+    decision = decide(Settings(), _guard_book(), now, False, None, TZ, last_hot)
+    assert decision.rule != "hot_guard"
+
+
+def test_the_guard_needs_no_price():
+    now = at(NORMAL_DAY, 18, 0, 5)
+    decision = decide(Settings(), PriceBook(), now, False, None, TZ, now - dt.timedelta(hours=30))
+    assert decision.rule == "hot_guard"
+    assert decision.target is True
+
+
+def test_the_guard_can_be_turned_off():
+    now = at(NORMAL_DAY, 18, 0, 5)
+    settings = Settings(hot_every_hours=0)
+    decision = decide(settings, _guard_book(), now, False, None, TZ, now - dt.timedelta(days=5))
+    assert decision.rule != "hot_guard"
+
+
+def test_the_guard_does_nothing_while_it_does_not_know_when_the_water_was_hot():
+    now = at(NORMAL_DAY, 18, 0, 5)
+    decision = decide(Settings(), _guard_book(), now, False, None, TZ, None)
+    assert decision.rule != "hot_guard"
+
+
+@pytest.mark.parametrize("kind", ["vacation", "manual"])
+def test_an_override_goes_before_the_guard(kind):
+    """A vacation: the owner confirmed the water may be unsafe. An override is a choice too."""
+    now = at(NORMAL_DAY, 18, 0, 5)
+    override = Override("off", now + dt.timedelta(hours=6), now, None, kind)
+    decision = decide(
+        Settings(), _guard_book(), now, False, override, TZ, now - dt.timedelta(days=3)
+    )
+    assert decision.rule == "override"
+    assert decision.target is False
+
+
+@pytest.mark.parametrize(
+    ("value", "ok"),
+    [
+        ("24", True),
+        ("0", True),
+        (6, True),
+        (72, True),
+        ("5", False),
+        (73, False),
+        (True, False),
+        ("1.5", False),
+        ("", False),
+    ],
+)
+def test_the_guard_hours_are_validated(value, ok):
+    result, errors = parse_settings({"hot_every_hours": value}, Settings())
+    assert (not errors) is ok
+    if ok:
+        assert result.hot_every_hours == int(value)
+
+
+def test_the_plan_shows_the_guard_in_the_current_slot_only():
+    now = at(NORMAL_DAY, 18, 0, 5)
+    (plan,) = plan_days(
+        Settings(), _guard_book(), now, False, None, TZ, [NORMAL_DAY], now - dt.timedelta(hours=25)
+    )
+    rules = {p.slot.start.astimezone(TZ).strftime("%H:%M"): p.rule for p in plan.slots}
+    assert rules["18:00"] == "hot_guard"
+    assert rules["18:15"] != "hot_guard"

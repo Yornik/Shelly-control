@@ -53,6 +53,7 @@ from .prices import (
 )
 from .rules import (
     HEAT_UP,
+    IDLE_WATTS,
     Decision,
     Override,
     Settings,
@@ -86,6 +87,11 @@ AUTH_BACKOFF = 300.0
 MAX_FOLLOWUPS = 3
 # While the exporter stays away, repeat the error line this often.
 REMINDER_SECONDS = 600.0
+# The Legionella guard heats until the thermostat stops the heating. If the
+# boiler still draws power after this long on, the guard counts the water as hot
+# and logs a warning: without the boost the 80 litre Duo heats from cold in
+# about 7 hours, so a thermostat that never stops is a fault, not cold water.
+GUARD_GIVE_UP = 8 * 3600.0
 
 SWITCH_FAILURE_REASONS = (*SHELLY_ERROR_REASONS, "not_confirmed")
 TRIGGERS = ("start", "quarter", "change", "override_end", "retry", "recheck")
@@ -111,6 +117,7 @@ _SETTING_LABELS = {
     "morning_factor": "Morning line",
     "negative_enabled": "Negative prices rule",
     "average_window": "Average",
+    "hot_every_hours": "Legionella guard (hours)",
 }
 
 
@@ -131,6 +138,43 @@ def _iso(moment: float | None) -> str | None:
     if moment is None:
         return None
     return dt.datetime.fromtimestamp(moment, dt.UTC).isoformat(timespec="seconds")
+
+
+def _is_hot(relay: SwitchStatus | None) -> bool:
+    """Relay on and almost no power: the thermostat has stopped, the water is up to temperature."""
+    return (
+        relay is not None
+        and relay.output
+        and relay.apower is not None
+        and relay.apower < IDLE_WATTS
+    )
+
+
+def _last_hot_from(entries, start: float) -> dt.datetime:
+    """When the water was last hot, from the decision log, for the guard after a restart.
+
+    The last evaluation that saw it hot. Without one, the oldest evaluation that
+    recorded the power at all: the guard then counts from the first start of
+    this version, and a restart never sets it back. Without either, the start.
+    """
+    hot, recorded = None, None
+    for entry in entries:
+        if entry.get("kind") != "evaluation" or "hot" not in entry:
+            continue
+        try:
+            moment = dt.datetime.fromisoformat(str(entry.get("ts")))
+        except ValueError:
+            continue
+        if moment.tzinfo is None:
+            continue
+        if recorded is None:
+            recorded = moment
+        if entry.get("hot") is True:
+            hot = moment
+    found = hot or recorded
+    if found is None:
+        return dt.datetime.fromtimestamp(start, dt.UTC)
+    return found.astimezone(dt.UTC)
 
 
 def _show(value: object) -> str:
@@ -189,6 +233,8 @@ class Snapshot:
     switching_allowed: bool
     last_evaluation_at: float | None
     counters: Counters
+    # When the water was last at the thermostat's temperature, for the guard.
+    last_hot: dt.datetime | None = None
 
 
 class Controller:
@@ -240,6 +286,9 @@ class Controller:
         self._store_error: str | None = None
 
         self._entries: deque[dict] = deque(store.load_decisions(), maxlen=log_size)
+        self._last_hot: dt.datetime = _last_hot_from(self._entries, self.clock())
+        # Since when the guard has kept the relay on, on the wall clock.
+        self._guard_heating_since: float | None = None
         self._book = store.load_prices() or PriceBook()
         self._price_attempt_at: float | None = None
         self._price_success_at: float | None = self._book.fetched_at
@@ -309,6 +358,7 @@ class Controller:
                     shadow_disagreements=self._shadow_disagreements,
                     state_write_errors=self._state_write_errors,
                 ),
+                last_hot=self._last_hot,
             )
 
     def update_settings(
@@ -589,7 +639,11 @@ class Controller:
             elif relay is None and settings.mode == "live":
                 self._current = None
             current = self._current
-            decision = decide(settings, self._book, moment, current, override, self.tz)
+            if _is_hot(relay):
+                self._last_hot = moment
+            decision = decide(
+                settings, self._book, moment, current, override, self.tz, self._last_hot
+            )
 
         outcome = self._apply(decision, relay, settings, now)
 
@@ -600,6 +654,7 @@ class Controller:
                 self._current = decision.target
             elif outcome.relay_after is not None:
                 self._current = outcome.relay_after
+            self._watch_guard(decision, relay, outcome, now)
             if (
                 trigger == "recheck"
                 and outcome.kind == "would_switch"
@@ -618,6 +673,30 @@ class Controller:
         event(LOG, "evaluation", "", **entry)
         self._persist(lambda: self.store.save_decisions(entries))
         return entry
+
+    def _watch_guard(
+        self, decision: Decision, relay: SwitchStatus | None, outcome: Outcome, now: float
+    ) -> None:
+        """Stop the guard after GUARD_GIVE_UP of heating without the thermostat stopping."""
+        on = outcome.relay_after if outcome.relay_after is not None else relay and relay.output
+        if decision.rule != "hot_guard" or not on:
+            self._guard_heating_since = None
+            return
+        if self._guard_heating_since is None:
+            self._guard_heating_since = now
+            return
+        if now - self._guard_heating_since < GUARD_GIVE_UP:
+            return
+        self._last_hot = dt.datetime.fromtimestamp(now, dt.UTC)
+        self._guard_heating_since = None
+        event(
+            LOG,
+            "guard_gave_up",
+            f"the Legionella guard heated for {int(GUARD_GIVE_UP // 3600)} hours and the "
+            "boiler still draws power; the water counts as hot. Check the thermostat and the "
+            "power reading.",
+            logging.WARNING,
+        )
 
     def _schedule_followup(self, trigger: str, outcome: Outcome, now: float) -> None:
         if self._followups >= MAX_FOLLOWUPS:
@@ -801,6 +880,9 @@ class Controller:
             "sent": outcome.sent,
             "relay_before": before,
             "relay_after": after,
+            # The power as read before any switch, and whether that meant hot water.
+            "power": relay.apower if relay else None,
+            "hot": _is_hot(relay),
             "reason": reason,
             "note": outcome.note,
             "error": outcome.error or read_error,

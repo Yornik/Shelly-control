@@ -12,6 +12,11 @@ The rules come from the cron script this service replaces, in its order:
 4. a price over the switch-off line switches off;
 5. anything else keeps the relay as it is, and nothing is sent.
 
+Two things go before these rules: the owner's override (a vacation
+included), and then the Legionella guard. The guard heats, whatever the
+price, when the water has not been at the thermostat's temperature for
+`hot_every_hours` (24 by default, about what the old night tariff gave).
+
 Each line is a factor times the day's average price, worked out in decimal
 and rounded to 3 decimals (0.1 ct per kWh, the precision the page shows). The
 comparisons are strict, as in the script: a price exactly on a line keeps the
@@ -52,12 +57,25 @@ VACATION_MAX = dt.timedelta(days=60)
 # hours; the knob is on the boiler, which this service cannot turn, so the page
 # tells the owner to. Once the water is hot the thermostat stops the heating.
 HEAT_UP = dt.timedelta(hours=2.5)
+# The Legionella guard: the water must reach the thermostat's temperature at
+# least this often. The boiler used to heat only on the night tariff, which the
+# grid's TF signal switched on from 23:00 to 07:00 on weekdays: off 16 hours, but
+# fully hot every night, so at most about 24 hours between two full heats. That
+# is the default. 0 turns the guard off.
+HOT_EVERY_DEFAULT = 24
+HOT_EVERY_MIN = 6
+HOT_EVERY_MAX = 72
+# Relay on and the boiler drawing less than this: its thermostat has stopped the
+# heating, so the water is at the thermostat's temperature. The element draws
+# about 1100 W while it heats.
+IDLE_WATTS = 20.0
 # What an override is for: the owner's own, a vacation, or the heat-up after one.
 OVERRIDE_KINDS = ("manual", "vacation", "heat_up")
 
 # Every value the decision's `rule` can take; a bounded metric label.
 RULES = (
     "override",
+    "hot_guard",
     "no_prices",
     "negative",
     "no_lines",
@@ -81,6 +99,8 @@ class Settings:
     morning_factor: float = 1.25
     negative_enabled: bool = True
     average_window: str = "day"
+    # Hours the water may go without reaching the thermostat's temperature; 0 = no guard.
+    hot_every_hours: int = HOT_EVERY_DEFAULT
 
     def to_json(self) -> dict:
         return {
@@ -93,6 +113,7 @@ class Settings:
             "morning_factor": self.morning_factor,
             "negative_enabled": self.negative_enabled,
             "average_window": self.average_window,
+            "hot_every_hours": self.hot_every_hours,
         }
 
 
@@ -120,6 +141,18 @@ def _factor(value: object) -> float:
         raise ValueError
     value = round(value, 2)
     if not FACTOR_MIN <= value <= FACTOR_MAX:
+        raise ValueError
+    return value
+
+
+def _hours(value: object) -> int:
+    if isinstance(value, bool):
+        raise ValueError
+    if isinstance(value, str):
+        value = int(value.strip())
+    if not isinstance(value, int):
+        raise ValueError
+    if value != 0 and not HOT_EVERY_MIN <= value <= HOT_EVERY_MAX:
         raise ValueError
     return value
 
@@ -162,6 +195,10 @@ _FIELDS = {
     "morning_factor": (_factor, _FACTOR_ERROR),
     "negative_enabled": (_flag, "Must be true or false."),
     "average_window": (_choice(AVERAGE_WINDOWS), "Pick one of the two averages."),
+    "hot_every_hours": (
+        _hours,
+        f"Enter whole hours from {HOT_EVERY_MIN} to {HOT_EVERY_MAX}, or 0 to turn the guard off.",
+    ),
 }
 
 
@@ -472,6 +509,29 @@ def explain_override(override: Override, tz: ZoneInfo, now: dt.datetime) -> str:
     return f"Override: keep off until {until}."
 
 
+def hot_guard_due(settings: Settings, last_hot: dt.datetime | None, now: dt.datetime) -> bool:
+    """Whether the water has gone too long without reaching the thermostat's temperature.
+
+    `last_hot` is the last time the relay was on and the boiler drew less than
+    IDLE_WATTS; None while that is unknown, which never starts the guard.
+    """
+    if not settings.hot_every_hours or last_hot is None:
+        return False
+    return now - last_hot >= dt.timedelta(hours=settings.hot_every_hours)
+
+
+def explain_hot_guard(
+    settings: Settings, last_hot: dt.datetime, now: dt.datetime, tz: ZoneInfo
+) -> str:
+    hours = int((now - last_hot).total_seconds() // 3600)
+    when = until_text(last_hot, now, tz)
+    return (
+        f"Legionella guard: the water was last fully hot {hours} hours ago ({when}), and the "
+        f"limit is {settings.hot_every_hours} hours. It heats whatever the price until the "
+        "boiler's thermostat stops the heating."
+    )
+
+
 @dataclass(frozen=True)
 class Decision:
     at: dt.datetime
@@ -494,11 +554,16 @@ def decide(
     current: bool | None,
     override: Override | None,
     tz: ZoneInfo,
+    last_hot: dt.datetime | None = None,
 ) -> Decision:
     """What the relay should do now.
 
     `current` is the state a "keep" keeps: the relay as read in live mode,
     the state this service would have set in shadow mode; None if unknown.
+    `last_hot` is when the water was last at the thermostat's temperature.
+
+    An override goes first, a vacation included: the owner confirmed that the
+    water may be unsafe. Then the Legionella guard, which needs no price.
     """
     now = now.astimezone(dt.UTC)
     slot = book.slot_at(now)
@@ -515,6 +580,17 @@ def decide(
             lines,
             morning,
             override,
+        )
+    if hot_guard_due(settings, last_hot, now):
+        return Decision(
+            now,
+            "hot_guard",
+            "on",
+            True,
+            explain_hot_guard(settings, last_hot, now, tz),
+            slot,
+            lines,
+            morning,
         )
     if slot is None:
         return Decision(
@@ -577,6 +653,7 @@ def plan_days(
     override: Override | None,
     tz: ZoneInfo,
     days: list[dt.date],
+    last_hot: dt.datetime | None = None,
 ) -> list[DayPlan]:
     """Run the rules over every known slot and return the plans of `days`.
 
@@ -584,7 +661,8 @@ def plan_days(
     slot. From the current slot on, the plan starts from `current` and
     includes an active override. A slot of a day whose prices are incomplete
     has no rule and an unknown state (None), and so has every "keep" after it
-    until a rule decides again.
+    until a rule decides again. A Legionella guard that is due now heats the
+    current slot; when it ends depends on the thermostat, which no plan knows.
     """
     now = now.astimezone(dt.UTC)
     lines_cache: dict[dt.date, Lines | None] = {}
@@ -608,6 +686,9 @@ def plan_days(
                 override.target,
                 explain_override(override, tz, now),
             )
+        elif is_current and hot_guard_due(settings, last_hot, now):
+            rule, target = "hot_guard", True
+            reason = explain_hot_guard(settings, last_hot, now, tz)
         elif lines is None:
             rule, target = "no_prices", None
             reason = "Not all of this day's prices are known, so there is no plan."
@@ -656,7 +737,7 @@ def closest_call(
         if lines is None:
             continue
         for planned in plan.slots:
-            if planned.past or planned.rule in ("override", "no_prices", "no_lines"):
+            if planned.past or planned.rule in ("override", "hot_guard", "no_prices", "no_lines"):
                 continue
             price = planned.slot.total
             if current:

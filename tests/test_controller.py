@@ -718,3 +718,105 @@ def test_triggers_and_outcomes_stay_in_their_bounded_lists(make_controller, fake
     assert {e["trigger"] for e in entries} <= set(TRIGGERS)
     assert {e["outcome"] for e in entries} <= set(OUTCOMES)
     assert {e["outcome"] for e in entries} >= {"switched", "failed"}
+
+
+# -- the Legionella guard -----------------------------------------------------------------------
+
+
+def test_the_guard_switches_on_after_a_day_without_hot_water(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    at_time(clock, 17, 0)
+    assert controller.evaluate("quarter")["relay_after"] is False
+    # 24 hours later: no prices any more, and the water was never hot.
+    clock.now += 24 * 3600
+    entry = controller.evaluate("quarter")
+    assert entry["rule"] == "hot_guard"
+    assert entry["outcome"] == "switched"
+    assert fake_shelly.output is True
+
+
+def test_hot_water_resets_the_guard(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    at_time(clock, 12, 0)
+    fake_shelly.output, fake_shelly.apower = True, 3.0
+    entry = controller.evaluate("quarter")
+    assert entry["hot"] is True
+    assert entry["power"] == 3.0
+    assert controller.snapshot().last_hot.timestamp() == clock.now
+    clock.now += 23 * 3600
+    assert controller.evaluate("quarter")["rule"] != "hot_guard"
+
+
+def test_the_guard_heats_until_the_thermostat_stops(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    at_time(clock, 17, 0)
+    clock.now += 24 * 3600
+    assert controller.evaluate("quarter")["rule"] == "hot_guard"
+    clock.now += 900
+    # Still drawing power: still heating.
+    assert controller.evaluate("quarter")["rule"] == "hot_guard"
+    fake_shelly.apower = 0.0
+    clock.now += 900
+    entry = controller.evaluate("quarter")
+    assert entry["hot"] is True
+    assert entry["rule"] != "hot_guard"
+
+
+def test_the_guard_gives_up_when_the_thermostat_never_stops(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    at_time(clock, 17, 0)
+    clock.now += 24 * 3600
+    # 32 quarters of 15 minutes are 8 hours; the next evaluation is back to the rules.
+    for _ in range(34):
+        entry = controller.evaluate("quarter")
+        clock.now += 900
+    assert entry["rule"] != "hot_guard"
+    assert controller.snapshot().last_hot.timestamp() > ts(NORMAL_DAY, 17, 0)
+
+
+def test_the_guard_switches_nothing_in_shadow_mode(make_controller, fake_shelly, clock):
+    controller = make_controller()
+    at_time(clock, 17, 0)
+    clock.now += 24 * 3600
+    entry = controller.evaluate("quarter")
+    assert entry["rule"] == "hot_guard"
+    assert entry["outcome"] == "would_switch"
+    assert fake_shelly.sets == []
+
+
+def test_a_vacation_goes_before_the_guard(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    at_time(clock, 12, 0)
+    now = dt.datetime.fromtimestamp(clock.now, dt.UTC)
+    controller.set_override("off", now + dt.timedelta(days=3), None, "vacation")
+    clock.now += 48 * 3600
+    entry = controller.evaluate("quarter")
+    assert entry["rule"] == "override"
+    assert fake_shelly.output is False
+
+
+def test_a_restart_keeps_the_time_the_water_was_hot(make_controller, fake_shelly, clock):
+    controller = make_controller(settings=LIVE)
+    at_time(clock, 12, 0)
+    fake_shelly.output, fake_shelly.apower = True, 3.0
+    controller.evaluate("quarter")
+    hot_at = clock.now
+    fake_shelly.apower = 1050.0
+    clock.now += 3600
+    controller.evaluate("quarter")
+    clock.now += 3600
+    again = make_controller(settings=LIVE)
+    assert again.snapshot().last_hot.timestamp() == hot_at
+
+
+def test_without_a_hot_reading_the_guard_counts_from_the_first_recorded_power(
+    make_controller, fake_shelly, clock
+):
+    controller = make_controller(settings=LIVE)
+    at_time(clock, 12, 0)
+    first = clock.now
+    controller.evaluate("quarter")
+    clock.now += 5 * 3600
+    again = make_controller(settings=LIVE)
+    # Not the restart: a restart loop would put the guard off for ever.
+    assert again.snapshot().last_hot.timestamp() == first
