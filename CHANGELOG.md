@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/Yornik/Shelly-control/compare/v1.2.0...v1.3.0) (2026-11-14)
+
+
+### Features
+
+* Legionella guard, heat fully at least every 24 hours ([#17](https://github.com/Yornik/Shelly-control/issues/17)) ([9692406](https://github.com/Yornik/Shelly-control/commit/969240613c33ab2bc2c2a54fc375bdc3f8acee8a))
+
 ## [1.2.0](https://github.com/Yornik/Shelly-control/compare/v1.1.0...v1.2.0) (2026-11-13)
 
 
