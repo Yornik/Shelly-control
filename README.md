@@ -16,10 +16,37 @@ through a Shelly Plus 1PM, and it starts the way that script worked.
 > change every setting and install firmware. Keep it in an encrypted secret.
 > The Plus 1PM stays on firmware 1.7.x, which serves HTTP only.
 
+> [!WARNING]
+> **Tuned for one boiler. On any other, you use it at your own risk.** The
+> defaults, the vacation heat-up (8 hours) and the Legionella guard (the boiler
+> counts as hot when it draws under 20 W) are tuned for one boiler: an 80 litre
+> Itho Daalderop Duo, drawing about 1.1 kW on its one element through a Shelly
+> Plus 1PM. Another boiler has another power, volume, thermostat and set of
+> safety devices. Check every number against yours, and do not rely on this
+> service for the safety of your water.
+>
+> **Electricity.** The relay switches mains power for a heating element of
+> over 1 kW. Wiring a relay into a mains circuit can kill you or start a fire if
+> it is done wrong: have a qualified electrician do it, with the supply switched
+> off, and check that the relay, the wiring and the circuit are rated for the
+> load. This software cannot see a wiring fault, an overload or a failing relay.
+>
+> **Health warning.** Water that stands lukewarm in a boiler can grow Legionella
+> bacteria, and breathing in their droplets, for instance in shower steam, can
+> cause a serious lung infection. This service cannot measure the water
+> temperature. The vacation switch-off, its heat-up and the guard make a safe
+> temperature more likely; they do not guarantee it. **I am not a health
+> expert.** The figures here come from the boiler's manual and my own
+> calculations. They are not medical or safety advice. Follow your boiler
+> maker's instructions and the advice of your health authority.
+>
+> **No affiliation.** I am not affiliated with the maker of my boiler (Itho
+> Daalderop), with Shelly, with Tibber or with any other brand named here.
+
 > [!IMPORTANT]
 > **Unofficial project.** This isn't made, endorsed or supported by Shelly
-> Group SE or by Tibber. **Shelly** and **Tibber** and their logos are
-> trademarks of their owners. See [Disclaimer & trademarks](#disclaimer--trademarks).
+> Group SE, by Tibber or by Itho Daalderop. **Shelly**, **Tibber** and
+> **Itho Daalderop** and their logos are trademarks of their owners. See [Disclaimer & trademarks](#disclaimer--trademarks).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/ui-dark.png">
@@ -649,21 +676,24 @@ See [SECURITY.md](SECURITY.md). In short:
 ## Disclaimer & trademarks
 
 **This is an independent, unofficial project.** It isn't made, endorsed,
-sponsored, authorized or supported by Shelly Group SE or by Tibber, and has no
-affiliation with them.
+sponsored, authorized or supported by Shelly Group SE, by Tibber or by Itho
+Daalderop (the maker of the boiler it is tuned for), and has no affiliation with
+them or with any other brand named here.
 
 **Trademarks.** **Shelly** and the Shelly logo are trademarks of Shelly Group
-SE. **Tibber** is a trademark of its owner. They are used here only to name the
-device and the price source this software works with. No logo is used.
+SE. **Tibber** and **Itho Daalderop** are trademarks of their owners. They are
+used here only to name the device, the price source and the boiler this software
+works with or is tuned for. No logo is used.
 
-**No support.** Neither Shelly nor Tibber supports this software. Open an issue
+**No support.** Neither Shelly, Tibber nor Itho Daalderop supports this software. Open an issue
 in this repository instead.
 
 **Use at your own risk.** This software switches mains power. The boiler's own
 thermostat and safety devices remain its protection; this service only decides
 when the relay is on. A wrong rule or a fault can leave you without hot water,
-or heating at peak prices. The software comes without any warranty. See
-[LICENSE](LICENSE).
+or heating at peak prices. It is tuned for one boiler, so on another you use it
+at your own risk, and it is no substitute for health advice: see the warning at
+the top. The software comes without any warranty. See [LICENSE](LICENSE).
 
 ## License
 
