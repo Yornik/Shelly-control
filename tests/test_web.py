@@ -482,7 +482,7 @@ def test_a_vacation_is_not_started_without_the_confirmation(setup):
     assert 'id="vacation-dialog"' in dialog.split(">")[0] + ">" and " open" in dialog.split(">")[0]
     assert "Legionella" in dialog
     assert "only safe to use after the boiler has fully heated up" in dialog
-    assert "2.5 hours whatever the price" in dialog
+    assert "8 hours whatever the price" in dialog
     assert "boost knob" in dialog
     assert "cannot turn it" in dialog
     assert '<option value="2026-11-03" selected>' in body
@@ -575,10 +575,10 @@ def test_ending_a_vacation_starts_the_heat_up_that_nothing_can_change(setup, fak
     assert heat_up.until == dt.datetime.fromtimestamp(clock.now, dt.UTC) + HEAT_UP
     body = client.get("/?notice=vacation_ended", headers=HEADERS).get_data(as_text=True)
     vacation = body[body.index('id="vacation"') :]
-    assert "The boiler heats for 2.5 hours whatever the price" in vacation
+    assert "The boiler heats for 8 hours whatever the price" in vacation
     assert "turn it to its maximum" in vacation
-    assert "only enough with it" in vacation
-    assert "Heating after the vacation until 14:30, whatever the price." in vacation
+    assert "long enough without it" in vacation
+    assert "Heating after the vacation until 20:00, whatever the price." in vacation
     assert "End vacation now" not in vacation
     # And now it cannot be ended or replaced, by the page.
     resp = client.post("/override/clear", data={"csrf": TOKEN}, headers=HEADERS)

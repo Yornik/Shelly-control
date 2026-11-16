@@ -311,11 +311,12 @@ def test_an_override_still_lasts_at_most_a_day():
         parse_until("2026-10-29T12:00", now, TZ)
 
 
-def test_the_heat_up_matches_the_duo_with_its_boost_on():
-    # The manual: 2:30 hours to heat 75 K on both elements (2750 W). 80 litres from 12 to
-    # 60 degrees is 4.5 kWh, 1.6 hours.
-    assert 1.5 < 80 * 4.186 * (60 - 12) / 3600 / 2.75 < 1.7
-    assert HEAT_UP >= dt.timedelta(hours=2, minutes=30)
+def test_the_heat_up_covers_heating_the_duo_to_its_top_position_on_one_element():
+    # 80 litres from 12 to 85 degrees on the 1000 W element the Shelly measures (the manual says
+    # 7 hours for 75 K), then the manual's 10 minutes at that temperature.
+    hours_needed = 80 * 4.186 * (85 - 12) / 3600 / 1.0 + 10 / 60
+    assert 6.8 < hours_needed < 7.1
+    assert HEAT_UP.total_seconds() / 3600 >= hours_needed + 0.5
 
 
 # -- summer time --------------------------------------------------------------------------------

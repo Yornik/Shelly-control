@@ -16,10 +16,39 @@ through a Shelly Plus 1PM, and it starts the way that script worked.
 > change every setting and install firmware. Keep it in an encrypted secret.
 > The Plus 1PM stays on firmware 1.7.x, which serves HTTP only.
 
+> [!WARNING]
+> **Tuned for one boiler. On any other, you use it at your own risk.** The
+> defaults, the vacation heat-up (8 hours) and the Legionella guard (the boiler
+> counts as hot when it draws under 20 W) are tuned for one boiler: an 80 litre
+> Itho Daalderop Duo, drawing about 1.1 kW on its one element through a Shelly
+> Plus 1PM. Another boiler has another power, volume, thermostat and set of
+> safety devices. Check every number against yours, and do not rely on this
+> service for the safety of your water.
+>
+> **Electricity.** The relay switches mains power for a heating element of
+> over 1 kW. Wiring a relay into a mains circuit can kill you or start a fire if
+> it is done wrong: have a qualified electrician do it, with the supply switched
+> off, and check that the relay, the wiring and the circuit are rated for the
+> load. This software cannot see a wiring fault, an overload or a failing relay.
+>
+> **Health warning.** Water that stands lukewarm in a boiler can grow Legionella
+> bacteria, and breathing in their droplets, for instance in shower steam, can
+> cause a serious lung infection. This service cannot measure the water
+> temperature. The vacation switch-off, its heat-up and the guard make a safe
+> temperature more likely; they do not guarantee it. **I am not a health
+> expert.** The figures here come from the boiler's manual and my own
+> calculations. They are not medical or safety advice. Follow your boiler
+> maker's instructions and the advice of your health authority.
+>
+> **No affiliation.** I am not related to Shelly Group SE, the company behind
+> Shelly, in any way: I am not employed by it, paid by it or connected to it. I
+> am also not affiliated with the maker of my boiler (Itho Daalderop), with
+> Tibber or with any other brand named here.
+
 > [!IMPORTANT]
 > **Unofficial project.** This isn't made, endorsed or supported by Shelly
-> Group SE or by Tibber. **Shelly** and **Tibber** and their logos are
-> trademarks of their owners. See [Disclaimer & trademarks](#disclaimer--trademarks).
+> Group SE, by Tibber or by Itho Daalderop. **Shelly**, **Tibber** and
+> **Itho Daalderop** and their logos are trademarks of their owners. See [Disclaimer & trademarks](#disclaimer--trademarks).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/ui-dark.png">
@@ -93,7 +122,7 @@ decides:
 
 | # | Rule | Default | The live script (`boiler2.sh`) |
 |---|---|---|---|
-| 1 | **Override**: on or off until a time you pick, then back to the rules. A **vacation** is an override that keeps the boiler off for up to 60 days, and ends with a 2.5-hour heat-up (below) | none | (none) |
+| 1 | **Override**: on or off until a time you pick, then back to the rules. A **vacation** is an override that keeps the boiler off for up to 60 days, and ends with an 8-hour heat-up (below) | none | (none) |
 | 1a | **Legionella guard**: the water was not fully hot for too long, heat whatever the price until the thermostat stops (below) | 24 hours | (none: the night tariff did this) |
 | 2 | **No usable price**: no price for this quarter, or not all of today's prices | always | no current price: exits without acting |
 | 3 | **Negative prices**: below zero, heat | on | `price < 0 → on` |
@@ -155,7 +184,7 @@ that promise with any prices:
   the price, also without prices, until the thermostat stops. Then the rules
   decide again.
 - An override goes first, a **vacation** included: starting one, you confirm
-  that the water may be unsafe, and its 2.5-hour heat-up follows. A manual
+  that the water may be unsafe, and its 8-hour heat-up follows. A manual
   override lasts at most 24 hours.
 - In shadow mode the guard switches nothing, as the other rules.
 - If the boiler still draws power after 8 hours of the guard, the water counts
@@ -188,25 +217,27 @@ bacteria, so:
   server refuses the request without the tick (`"confirm": true` in the API),
   so no client skips it.
 - When the vacation ends, whether at its time or when you end it early, the
-  boiler is switched on and stays on for **at least 2.5 hours, whatever the
+  boiler is switched on and stays on for **at least 8 hours, whatever the
   price** (a negative price, a price over the switch-off line, shadow mode).
   Nothing shortens that heat-up: no rule, and no new override, vacation or
   "end override" from the page or the API (`409` there). If the service was
-  down when the vacation ended, the 2.5 hours count from when it notices. If
+  down when the vacation ended, the 8 hours count from when it notices. If
   the relay was switched in the last minute, the usual 60-second pause between
   switches comes first, and then it switches on by itself.
-- The 2.5 hours are sized for the 80 litre Itho Daalderop Duo (manual
+- The 8 hours are sized for the 80 litre Itho Daalderop Duo (manual
   [01-06120-001](https://ithodaalderop.compano.com/Data/Environments/000001/Attachment/Bijlage/A05_Warm%20water/A05_01_Boilers%20Groot/A05_01_01_Elektroboilers/B01_06_MTE/01-06120-001%20%20Handleiding%20Elektroboiler%20(nl)(2023).pdf))
-  **with its boost knob on**. The relay switches the whole boiler, but the Duo
-  heats with its 1000 W element alone, which is the 1.1 kW the Shelly shows; the
-  boost knob (up to 120 minutes) adds the second element, for 2750 W in all, and
-  this service cannot turn it. With the boost, the manual gives 2:30 hours to
-  heat 75 °C, and 80 litres to 60 °C take about 1.6 hours. Without it the same
-  boiler needs about 7 hours, so the page tells you to turn the boost on when
-  you are home, and to use Override if the water is not hot when the time is
-  over. Once the water is hot the thermostat stops the heating. Change `HEAT_UP`
-  in `rules.py` for another boiler.
-- After the 2.5 hours the rules decide again. The service cannot measure the
+  as the Shelly measures it. The relay switches the whole boiler, but the Duo
+  heats with its 1000 W element alone, which is the 1.1 kW the Shelly shows (the
+  two weeks of readings behind this never went above it); the boost knob (up to
+  120 minutes) adds the second element, for 2750 W in all, and this service
+  cannot turn it. On one element the manual gives 7 hours to heat 75 °C, and
+  80 litres from 12 to 85 °C take about 6.8 hours; the manual's own procedure
+  after a week without heating adds 10 minutes at that temperature. That is why
+  8 hours. The page tells you to turn the boost on when you are home, which makes
+  it about three times as fast. Once the water is hot the thermostat stops the
+  heating, so spare hours cost nothing. Change `HEAT_UP` in `rules.py` for
+  another boiler.
+- After the 8 hours the rules decide again. The service cannot measure the
   water temperature, so it cannot tell when the water is safe: it is, once the
   boiler has fully heated up to its safe temperature. The boiler's own
   thermostat decides what that is (position 3 is about 85 °C; anything under
@@ -280,7 +311,7 @@ the image.
 | `PUT /api/v1/settings` | Change some settings (names as `GET` returns them; `mode` is `shadow` or `live`, `average_window` is `day` or `day_and_next`). Add `"confirm_live": true` to go live. `422` with `errors` by field |
 | `POST /api/v1/override` | `{"action": "on" \| "off", "until": "18:00" or an ISO time}`, at most 24 hours. `409` while a vacation or its heat-up runs |
 | `POST /api/v1/vacation` | `{"until": an ISO date and time, "confirm": true}`: switch the boiler off completely, at most 60 days. Without `"confirm": true`, `422`. `409` while a vacation or its heat-up runs |
-| `DELETE /api/v1/override` | End the override or the vacation (which starts the 2.5-hour heat-up). `409` during the heat-up |
+| `DELETE /api/v1/override` | End the override or the vacation (which starts the 8-hour heat-up). `409` during the heat-up |
 | `GET /api/v1/decisions?limit=100` | The decision log, newest first |
 
 Changes need `Content-Type: application/json` and the token from
@@ -647,21 +678,24 @@ See [SECURITY.md](SECURITY.md). In short:
 ## Disclaimer & trademarks
 
 **This is an independent, unofficial project.** It isn't made, endorsed,
-sponsored, authorized or supported by Shelly Group SE or by Tibber, and has no
-affiliation with them.
+sponsored, authorized or supported by Shelly Group SE, by Tibber or by Itho
+Daalderop (the maker of the boiler it is tuned for), and has no affiliation with
+them or with any other brand named here.
 
 **Trademarks.** **Shelly** and the Shelly logo are trademarks of Shelly Group
-SE. **Tibber** is a trademark of its owner. They are used here only to name the
-device and the price source this software works with. No logo is used.
+SE. **Tibber** and **Itho Daalderop** are trademarks of their owners. They are
+used here only to name the device, the price source and the boiler this software
+works with or is tuned for. No logo is used.
 
-**No support.** Neither Shelly nor Tibber supports this software. Open an issue
+**No support.** Neither Shelly, Tibber nor Itho Daalderop supports this software. Open an issue
 in this repository instead.
 
 **Use at your own risk.** This software switches mains power. The boiler's own
 thermostat and safety devices remain its protection; this service only decides
 when the relay is on. A wrong rule or a fault can leave you without hot water,
-or heating at peak prices. The software comes without any warranty. See
-[LICENSE](LICENSE).
+or heating at peak prices. It is tuned for one boiler, so on another you use it
+at your own risk, and it is no substitute for health advice: see the warning at
+the top. The software comes without any warranty. See [LICENSE](LICENSE).
 
 ## License
 
