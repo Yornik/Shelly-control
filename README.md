@@ -40,8 +40,10 @@ through a Shelly Plus 1PM, and it starts the way that script worked.
 > calculations. They are not medical or safety advice. Follow your boiler
 > maker's instructions and the advice of your health authority.
 >
-> **No affiliation.** I am not affiliated with the maker of my boiler (Itho
-> Daalderop), with Shelly, with Tibber or with any other brand named here.
+> **No affiliation.** I am not related to Shelly Group SE, the company behind
+> Shelly, in any way: I am not employed by it, paid by it or connected to it. I
+> am also not affiliated with the maker of my boiler (Itho Daalderop), with
+> Tibber or with any other brand named here.
 
 > [!IMPORTANT]
 > **Unofficial project.** This isn't made, endorsed or supported by Shelly
