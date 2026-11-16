@@ -50,13 +50,14 @@ OVERRIDE_MAX = dt.timedelta(hours=24)
 VACATION_MAX = dt.timedelta(days=60)
 # When a vacation ends, the boiler heats this long whatever the price, so the
 # water reaches a safe temperature again. Nothing shortens it. Sized for the
-# 80 litre Itho Daalderop Duo (manual 01-06120-001) with its boost knob on,
-# which adds the second element for 2750 W: the manual gives 2:30 hours to heat
-# 75 degrees, and 80 kg x 4.186 kJ/(kg K) x 48 K = 4.5 kWh to 60 degrees takes
-# 1.6 hours. Without the boost the boiler heats at 1000 W and needs about 7
-# hours; the knob is on the boiler, which this service cannot turn, so the page
-# tells the owner to. Once the water is hot the thermostat stops the heating.
-HEAT_UP = dt.timedelta(hours=2.5)
+# 80 litre Itho Daalderop Duo (manual 01-06120-001) on its 1000 W element alone,
+# which is how the Shelly measures it: the manual gives 7 hours to heat 75
+# degrees, and 80 kg x 4.186 kJ/(kg K) x 73 K = 6.8 kWh takes 6.8 hours from 12
+# to the thermostat's top position of 85, plus the manual's 10 minutes at that
+# temperature. The boost knob adds the second element (2750 W, about 3 times as
+# fast), but it is on the boiler, which this service cannot turn. Once the water
+# is hot the thermostat stops the heating, so spare hours cost nothing.
+HEAT_UP = dt.timedelta(hours=8)
 # The Legionella guard: the water must reach the thermostat's temperature at
 # least this often. The boiler used to heat only on the night tariff, which the
 # grid's TF signal switched on from 23:00 to 07:00 on weekdays: off 16 hours, but
