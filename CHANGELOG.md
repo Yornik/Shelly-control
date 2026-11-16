@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/Yornik/Shelly-control/compare/v1.3.0...v1.4.0) (2026-11-16)
+
+
+### Features
+
+* heat for 8 hours after a vacation, enough on the Duo's one element ([6370e3d](https://github.com/Yornik/Shelly-control/commit/6370e3d6a7895c77ddda9939f8206deab9dac622))
+* heat for 8 hours after a vacation, enough on the Duo's one element ([9b0c526](https://github.com/Yornik/Shelly-control/commit/9b0c526235ebd37ae43ed3cd736ed87b7581dd1d))
+
 ## [1.3.0](https://github.com/Yornik/Shelly-control/compare/v1.2.0...v1.3.0) (2026-11-14)
 
 
