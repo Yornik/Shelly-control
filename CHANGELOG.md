@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/Yornik/Shelly-control/compare/v1.4.0...v1.5.0) (2026-11-27)
+
+
+### Features
+
+* graph the boiler's power per minute and show what it cost ([68d0ea5](https://github.com/Yornik/Shelly-control/commit/68d0ea50638a2530ecc6de2eb7cd0e9ff120f441))
+* graph the boiler's power per minute and show what it cost ([354dc53](https://github.com/Yornik/Shelly-control/commit/354dc53d08e9646ae3417f29dcf1af695d9a20bc))
+
 ## [1.4.0](https://github.com/Yornik/Shelly-control/compare/v1.3.0...v1.4.0) (2026-11-16)
 
 
