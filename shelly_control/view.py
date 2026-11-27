@@ -12,6 +12,8 @@ from zoneinfo import ZoneInfo
 
 from .chart import ChartModel, build_chart, quarter_key, y_scale
 from .controller import Snapshot, prices_usable
+from .cost import CostView, build_cost
+from .power import KEEP_SECONDS, intervals
 from .rules import (
     HEAT_UP,
     HOT_EVERY_MAX,
@@ -89,6 +91,8 @@ class Key:
     planned: bool = True
     # The rail shows what the relay did before now.
     history: bool = False
+    # The charts have a power band.
+    power: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +125,7 @@ class PageView:
     # When the water was last fully hot, for the Legionella guard's field.
     last_hot_text: str | None = None
     hot_every_max: int = HOT_EVERY_MAX
+    cost: CostView | None = None
 
 
 def _local(moment: float | dt.datetime, tz: ZoneInfo) -> dt.datetime:
@@ -563,11 +568,14 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
     days = []
     charts = []
     history = relay_history(snap.entries)
+    stretches = intervals(snap.power.samples(since=snap.now - KEEP_SECONDS)) if snap.power else []
     for plan in plans:
         title = _title(plan.day, today)
         if plan.slots and scale is not None:
             chart_id = "today" if plan.day == today else "tomorrow"
-            chart = build_chart(plan, scale, now, tz, chart_id, title, snap.settings, history)
+            chart = build_chart(
+                plan, scale, now, tz, chart_id, title, snap.settings, history, stretches
+            )
             charts.append(chart)
             days.append(DayView(chart, title, None))
         else:
@@ -582,6 +590,7 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
             lines=any(c.band is not None for c in charts),
             planned=any(p.target is not None for plan in plans for p in plan.slots),
             history=any(p.past for plan in plans for p in plan.slots),
+            power=any(c.power is not None for c in charts),
         )
 
     usable = prices_usable(snap, tz)
@@ -635,4 +644,5 @@ def build_view(snap: Snapshot, tz: ZoneInfo, name: str) -> PageView:
         status=tuple(_status(snap, tz, today)),
         average_labels=AVERAGE_LABELS,
         last_hot_text=_last_hot_text(snap, tz, today),
+        cost=build_cost(stretches, now, tz) if snap.power else None,
     )

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_chart.html" import day_chart %}
+{% from "_cost.html" import cost_section %}
 {% block title %}{{ v.name }}: {{ v.hero.word }}{% endblock %}
 
 {%- macro factor(name, label, help, line) -%}
@@ -96,6 +97,10 @@
   {%- endif %}
   {%- endfor %}
 </section>
+
+{%- if v.cost %}
+{{ cost_section(v.cost) }}
+{%- endif %}
 
 <div class="side">
 <section id="override" class="sec" aria-labelledby="h-override">

@@ -42,6 +42,7 @@ from dataclasses import dataclass, field, replace
 from zoneinfo import ZoneInfo
 
 from .logs import event
+from .power import POWER_FILE, SAMPLE_SECONDS, PowerLog
 from .prices import (
     PRICE_ERROR_REASONS,
     ExporterViolation,
@@ -235,6 +236,8 @@ class Snapshot:
     counters: Counters
     # When the water was last at the thermostat's temperature, for the guard.
     last_hot: dt.datetime | None = None
+    # The per-minute energy record, for the graph and the cost line.
+    power: PowerLog | None = None
 
 
 class Controller:
@@ -310,6 +313,11 @@ class Controller:
         self._last_switch_at: float | None = None
         self._last_evaluation_at: float | None = None
 
+        self.power = PowerLog(store.dir / POWER_FILE, clock=clock)
+        # When the energy counter was last read, on the wall clock.
+        self._power_read_at: float | None = None
+        self._power_error_logged = False
+
         self._last_quarter: int | None = None
         self._followup_at: float | None = None
         self._followup_kind = "retry"
@@ -359,6 +367,7 @@ class Controller:
                     state_write_errors=self._state_write_errors,
                 ),
                 last_hot=self._last_hot,
+                power=self.power,
             )
 
     def update_settings(
@@ -510,10 +519,14 @@ class Controller:
             elif trigger in ("retry", "recheck"):
                 self._followup_at = None
             price_due = _due(self._price_attempt_at, now, self.price_refresh)
+            sample_due = _due(self._power_read_at, now, SAMPLE_SECONDS)
         if trigger is not None:
             self.evaluate(trigger, now)
-        elif price_due:
-            self.refresh_prices(now)
+        else:
+            if sample_due:
+                self.sample_power(now)
+            if price_due:
+                self.refresh_prices(now)
         return trigger
 
     def _new_quarter(self, quarter: int) -> bool:
@@ -539,11 +552,50 @@ class Controller:
             candidates = [due]
             if self._price_attempt_at is not None:
                 candidates.append(self._price_attempt_at + self.price_refresh)
+            if self._power_read_at is not None:
+                candidates.append(self._power_read_at + SAMPLE_SECONDS)
             if self._override is not None:
                 candidates.append(self._override.until.timestamp())
             if self._followup_at is not None:
                 candidates.append(self._followup_at)
         return min(MAX_SLEEP, max(0.2, min(candidates) - now))
+
+    # -- the energy record -----------------------------------------------------------------------
+
+    def sample_power(self, now: float | None = None) -> bool:
+        """Read the relay for its energy counter. True when the read was recorded.
+
+        Between evaluations: the quarter's own evaluation reads the relay too, and
+        records the counter the same way, so the record has a read every minute.
+        """
+        now = self.clock() if now is None else now
+        with self._evaluating:
+            status, _ = self._read_relay(now)
+        # A read that failed is tried again on the next tick, not every 0.2 s.
+        with self._lock:
+            self._power_read_at = now
+        return status is not None and status.energy_wh is not None
+
+    def _record_power(self, status: SwitchStatus, now: float) -> None:
+        """Keep the counter with the price in force, for the graph and the cost line."""
+        with self._lock:
+            self._power_read_at = now
+            slot = self._book.slot_at(dt.datetime.fromtimestamp(now, dt.UTC))
+        price = slot.total if slot is not None else None
+        if self.power is None or not self.power.add(now, status.energy_wh, price):
+            return
+        problem = self.power.error
+        if problem and not self._power_error_logged:
+            self._power_error_logged = True
+            event(
+                LOG,
+                "power_log_failing",
+                f"the power record could not be written ({problem}); the graph has gaps",
+                logging.WARNING,
+            )
+        elif not problem and self._power_error_logged:
+            self._power_error_logged = False
+            event(LOG, "power_log_back", "the power record takes writes again")
 
     # -- prices ----------------------------------------------------------------------------------
 
@@ -735,6 +787,7 @@ class Controller:
                 event(LOG, "device_back", "the device answers again")
             if self._device is None:
                 self._read_device_info()
+            self._record_power(status, now)
             return status, None
         message = str(error)
         with self._lock:

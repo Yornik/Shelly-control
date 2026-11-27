@@ -749,3 +749,29 @@ def test_the_page_shows_a_failed_save(setup):
 def test_error_pages_are_html_for_the_page_and_json_for_the_api(client):
     assert "text/html" in client.get("/nope", headers=HEADERS).content_type
     assert client.get("/api/v1/nope", headers=HEADERS).get_json()["error"]
+
+
+# -- the power graph and the cost ---------------------------------------------------------------
+
+
+def test_the_page_shows_the_power_band_and_what_the_boiler_cost(setup, fake_shelly, clock):
+    controller, client = setup(settings=Settings(mode="live"), price_refresh=3600)
+    fake_shelly.output = True
+    for _ in range(12):
+        fake_shelly.energy_wh += 17.5
+        clock.now += 60
+        controller.tick()
+    body = client.get("/", headers=HEADERS).get_data(as_text=True)
+    assert "What the boiler cost" in body
+    assert "Today so far" in body and "Yesterday" in body and "This week" in body
+    assert 'class="pwr-area"' in body and "Power per minute" in body
+    assert 'class="cday today"' in body
+    assert " style=" not in body
+
+
+def test_the_cost_section_waits_for_the_first_readings(setup):
+    _, client = setup()
+    body = client.get("/", headers=HEADERS).get_data(as_text=True)
+    assert "What the boiler cost" in body
+    assert "No readings yet" in body
+    assert 'class="pwr-area"' not in body

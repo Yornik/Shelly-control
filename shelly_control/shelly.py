@@ -143,6 +143,9 @@ class SwitchStatus:
     apower: float | None
     errors: tuple[str, ...]
     timer_running: bool
+    # The device's energy counter in Wh: the difference between two reads is the
+    # exact energy used between them, which the power graph is built from.
+    energy_wh: float | None = None
 
     @classmethod
     def from_reply(cls, data: dict) -> SwitchStatus:
@@ -152,6 +155,8 @@ class SwitchStatus:
         source = data.get("source")
         apower = data.get("apower")
         raw_errors = data.get("errors")
+        aenergy = data.get("aenergy")
+        total = aenergy.get("total") if isinstance(aenergy, dict) else None
         errors = (
             tuple(
                 str(e) if str(e) in SWITCH_ERRORS else "other"
@@ -169,6 +174,9 @@ class SwitchStatus:
             else None,
             errors=errors,
             timer_running="timer_started_at" in data,
+            energy_wh=float(total)
+            if isinstance(total, int | float) and not isinstance(total, bool)
+            else None,
         )
 
 

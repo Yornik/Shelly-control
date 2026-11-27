@@ -44,6 +44,8 @@ class FakeShelly:
         self.realm = self.info["id"]
         self.output = output
         self.apower = 1050.0 if output else 0.0
+        # The energy counter in Wh, which tests move to give the device a history.
+        self.energy_wh = 1234.5
         self.source = "init"
         self.errors: list[str] | None = None
         # Knobs a test turns to break the device in one particular way.
@@ -183,7 +185,7 @@ class FakeShelly:
             "apower": self.apower,
             "voltage": 230.1,
             "current": round(self.apower / 230.1, 3),
-            "aenergy": {"total": 1234.5, "by_minute": [0, 0, 0], "minute_ts": 1761400000},
+            "aenergy": {"total": self.energy_wh, "by_minute": [0, 0, 0], "minute_ts": 1761400000},
             "temperature": {"tC": 41.2, "tF": 106.2},
         }
         if self.errors:

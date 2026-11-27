@@ -53,12 +53,16 @@
       var history = /^(Was |No record)/.test(data.plan);
       var plan = history ? data.plan : "Planned " + data.plan.toLowerCase();
       var on = data.plan === "On" || data.plan === "Was on";
-      readout.replaceChildren(
+      var parts = [
         el("strong", "", data.price),
         el("span", "r-time", data.time),
-        el("span", "r-plan" + (on ? " on" : ""), plan),
-        el("span", "r-why", data.why)
-      );
+        el("span", "r-plan" + (on ? " on" : ""), plan)
+      ];
+      // What the boiler used in the slot, from the energy counter; only where it was read.
+      var used = data.used ? "Used " + data.used + (data.cost ? ", cost " + data.cost : "") : "";
+      if (used) parts.push(el("span", "r-used", used));
+      parts.push(el("span", "r-why", data.why));
+      readout.replaceChildren.apply(readout, parts);
       readout.hidden = false;
       // Beside the crosshair, not over it, so the quarter itself stays in view.
       var width = svg.getBoundingClientRect().width;
@@ -68,7 +72,8 @@
       // CSSOM, not a style attribute: allowed under the page's CSP.
       readout.style.left = Math.max(0, left) + "px";
       if (announce && live) {
-        live.textContent = data.time + ": " + data.price + ". " + plan + ". " + data.why;
+        live.textContent =
+          data.time + ": " + data.price + ". " + plan + ". " + (used ? used + ". " : "") + data.why;
       }
     }
 
@@ -107,6 +112,55 @@
   }
 
   document.querySelectorAll(".plotwrap").forEach(setup);
+
+  // The cost columns: a readout beside the column under the pointer or the focus.
+  // Without this file the native tooltip and the table view carry the same text.
+  document.querySelectorAll(".costplot").forEach(function (plot) {
+    var readout = plot.querySelector(".readout");
+    var days = Array.prototype.slice.call(plot.querySelectorAll(".cday"));
+    if (!readout || !days.length) return;
+    days.forEach(function (day) {
+      var title = day.querySelector("title");
+      if (title) title.parentNode.removeChild(title);
+    });
+    function show(day) {
+      var box = plot.getBoundingClientRect();
+      var cell = day.getBoundingClientRect();
+      readout.replaceChildren(
+        el("strong", "", day.dataset.euros || "No cost"),
+        el("span", "r-time", day.dataset.date),
+        el("span", "r-why", day.dataset.text.slice(day.dataset.date.length + 2).replace(/^\S+, /, ""))
+      );
+      readout.hidden = false;
+      var middle = cell.left - box.left + cell.width / 2;
+      var width = readout.offsetWidth;
+      var left = middle + 18 + width <= box.width ? middle + 18 : middle - 18 - width;
+      readout.style.left = Math.max(0, left) + "px";
+    }
+    function hide() {
+      readout.hidden = true;
+    }
+    days.forEach(function (day) {
+      day.addEventListener("pointerenter", function () {
+        show(day);
+      });
+      day.addEventListener("focus", function () {
+        show(day);
+      });
+      day.addEventListener("pointerleave", hide);
+      day.addEventListener("blur", hide);
+      day.addEventListener("keydown", function (e) {
+        var i = days.indexOf(day);
+        var next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: days.length - 1 }[e.key];
+        if (next !== undefined && days[next]) {
+          days[next].focus();
+          e.preventDefault();
+        } else if (e.key === "Escape") {
+          hide();
+        }
+      });
+    });
+  });
 
   // A form that was refused: move to its errors, so a phone shows them. The
   // form's #fragment already names them; this covers a browser that only

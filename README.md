@@ -52,7 +52,7 @@ through a Shelly Plus 1PM, and it starts the way that script worked.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/ui-dark.png">
-  <img alt="The shelly-control page in live mode: the relay's state, today's and tomorrow's prices with the switch lines and the planned quarters, the override, the vacation switch-off and the rules" src="docs/ui-light.png" width="700">
+  <img alt="The shelly-control page in live mode: the relay's state, today's and tomorrow's prices with the switch lines, the planned quarters and the boiler's power per minute, what the boiler cost, the override, the vacation switch-off and the rules" src="docs/ui-light.png" width="700">
 </picture>
 
 _Rendered against a fake relay and a fake exporter with made-up prices, on
@@ -280,9 +280,19 @@ One page, top to bottom on a phone, in two columns from 960 px:
   the switch-off line while the relay is on says by how much ("54.5 · 0.4 ct
   under off"), and likewise a lowest price over the switch-on line while it
   is off. The x axis is the clock: a quarter without a price is a hatched
-  gap, not a line that runs on. Hover, tap or focus the chart and use the
-  arrow keys for one quarter's details; every value is also in the table
-  under each chart.
+  gap, not a line that runs on. Under the rail, today's chart has a **power
+  band**: the watts the boiler drew, per minute, so the heating sits right
+  under the price that caused it (a boost shows as a taller block, and the
+  peak is named). Hover, tap or focus the chart and use the arrow keys for one
+  quarter's details, including what the boiler used in it and what that cost;
+  every value is also in the table under each chart.
+- **What the boiler cost**: three tiles, *today so far*, *yesterday* and *this
+  week since Monday*, each in euros with the kWh and the average price paid,
+  and under them one column per day for the last seven days (hover or focus a
+  column for its details; the numbers are in a table too). A period the
+  readings do not fully cover says how much they do ("Readings cover 3.0 h of
+  15 h"), and energy used while no price was known is counted in kWh but not
+  in the euros, and said so.
 - **Override**: heat or keep off until a time, or end it early. The times on
   offer are full times, so a choice that passes while the page stands open
   is refused, never moved to the same time tomorrow.
@@ -294,7 +304,7 @@ One page, top to bottom on a phone, in two columns from 960 px:
   a change if the Tailscale proxy says so.
 - **Status**: how fresh the prices and the relay reading are.
 
-The page works without JavaScript; the script only adds the chart readout,
+The page works without JavaScript; the script only adds the chart and column readouts,
 moves to a refused form's errors, and reloads a page left open for five
 minutes, but not while you use it (a form being filled in, a table or the
 explanation opened, the chart in focus). It loads nothing from outside: the
@@ -413,7 +423,7 @@ Every reason label is present from the start, at `0`.
 
 | Method | When | What for |
 | --- | --- | --- |
-| `Switch.GetStatus` (`id`) | Every decision, and after a switch to confirm it | Whether the relay is on, what last changed it, its power, protection errors |
+| `Switch.GetStatus` (`id`) | Every decision, once a minute in between, and after a switch to confirm it | Whether the relay is on, what last changed it, its power, its energy counter (Wh), protection errors |
 | `Switch.Set` (`id`, `on`) | Only when the decision differs from the relay, in live mode or for an override | Turn the relay on or off |
 | `Shelly.GetDeviceInfo` | Once, at the first good read | Model, firmware, whether authentication is on. Needs no password. |
 
@@ -467,11 +477,23 @@ password or the home id.
 ### State on disk
 
 Three JSON files in `STATE_DIR`, each written to a temporary file, synced and
-renamed over the old one, so a crash leaves the old file or the new one:
+renamed over the old one, so a crash leaves the old file or the new one, and
+the power record:
 
 - `state.json`: the settings and an active override, with who changed them last;
 - `decisions.json`: the decision log;
-- `prices.json`: the last good prices.
+- `prices.json`: the last good prices;
+- `power.jsonl`: the power record, one line `[unix seconds, Wh, price per kWh]`
+  per minute for the last eight days (about 11,500 lines, under 400 kB). It
+  stores the device's energy counter, not a power reading: the difference
+  between two reads is the exact energy used between them, so a thermostat
+  that switches in the middle of a minute is not missed, and a quarter's
+  cost is exact even though the price service only keeps today's and
+  tomorrow's prices (each read keeps the price in force when it was made).
+  A gap in the reads (the service was down) stays a gap in the graph, and a
+  counter that went down (the device restarted) loses that one minute. The
+  file is only for the graph and the cost: if it can't be written, the
+  service logs one warning and goes on.
 
 A missing `state.json` means the defaults. One that can't be read is renamed
 `state.json.unreadable-<time>`, and one a newer release wrote

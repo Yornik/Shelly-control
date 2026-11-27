@@ -7,6 +7,10 @@ mechanical timer, unrolled): a full pin for on, a short bar for off, a dotted
 baseline for unknown. From now on the rail shows the plan; before now, given
 the decision log, it shows what the relay did, in lighter pins.
 
+Under the rail, for a day with readings of the boiler's energy counter, a third
+band shows the power per minute in watts (one hue, the same one as the relay's
+"on"), so the heating can be seen next to the price that caused it.
+
 x is time. The plot is an SVG whose viewBox is one unit per minute of the
 local day (1380, 1440 or 1500 minutes: summer time starts, a normal day,
 summer time ends), stretched to the panel's width (preserveAspectRatio="none",
@@ -19,12 +23,14 @@ works under a Content-Security-Policy without 'unsafe-inline'.
 
 from __future__ import annotations
 
+import bisect
 import datetime as dt
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
+from .power import Interval
 from .prices import day_bounds
 from .rules import DayPlan, Lines, PlannedSlot, Settings, ct, hhmm
 
@@ -36,6 +42,11 @@ GAP = 10
 AXIS_H = 22
 TOP = 22
 GUTTER_W = 76
+# The power band under the rail, and the space between them.
+POWER_H = 72
+POWER_GAP = 14
+# The band's scale is at least this many watts, so a quiet day is not stretched to fill it.
+POWER_MIN_TOP = 1500
 # Gutter labels closer than this would overlap.
 LABEL_SPACING = 14
 # A "no price" span narrower than this share of the day gets no words.
@@ -121,6 +132,9 @@ class Hit:
     price: str
     plan: str
     why: str
+    # What the boiler used in this slot ("0.25 kWh, 1012 W on average") and what it cost.
+    used: str = ""
+    cost: str = ""
 
 
 @dataclass(frozen=True)
@@ -141,6 +155,24 @@ class Row:
     why: str
     past: bool
     current: bool
+    # kWh used, average watts and the cost in ct, for the slots with readings.
+    used: str = ""
+    watts: str = ""
+    cost: str = ""
+
+
+@dataclass(frozen=True)
+class PowerPanel:
+    """The power band: one filled step line of watts per minute, in plot units."""
+
+    y: int
+    h: int
+    area: str
+    line: str
+    grid: tuple[Mark, ...]
+    # Gutter labels, in absolute chart coordinates.
+    refs: tuple[Ref, ...]
+    unit_y: int
 
 
 @dataclass(frozen=True)
@@ -174,6 +206,7 @@ class ChartModel:
     aria: str
     # "keeps its state", written on the band where it is tall enough.
     band_label: Label | None = None
+    power: PowerPanel | None = None
     plot_h: int = PLOT_H
     rail_h: int = RAIL_H
     top: int = TOP
@@ -182,6 +215,113 @@ class ChartModel:
     hit_h: int = PLOT_H + GAP + RAIL_H
     total_h: int = TOP + PLOT_H + GAP + RAIL_H + AXIS_H
     axis_y: int = TOP + PLOT_H + GAP + RAIL_H + 16
+
+
+def _watts(value: float) -> str:
+    return f"{value:.0f} W"
+
+
+def _kwh(value: float) -> str:
+    return f"{value:.2f} kWh"
+
+
+def _power_top(peak: float) -> int:
+    """The watts at the top of the band: a round number a little above the peak."""
+    return max(POWER_MIN_TOP, math.ceil(peak * 1.08 / 500) * 500)
+
+
+def _power_panel(
+    stretches: Sequence[Interval], start: dt.datetime, span: int, y0: int
+) -> tuple[PowerPanel, Label] | None:
+    """The band for the readings inside one day, and the label for its peak."""
+    t0, t1 = start.timestamp(), start.timestamp() + span * 60
+    inside = [s for s in stretches if t0 <= s.t0 < t1]
+    if not inside:
+        return None
+    peak = max(inside, key=lambda s: s.watts)
+    top = _power_top(peak.watts)
+
+    def y(watts: float) -> float:
+        # Whole units: a reading's few watts of noise is not drawn as a comb.
+        return float(round(POWER_H - min(watts, top) / top * POWER_H))
+
+    def x(moment: float) -> float:
+        return round((moment - t0) / 60, 2)
+
+    area, line = [], []
+    run_end: float | None = None
+    last_y: float | None = None
+    # Neighbouring minutes at the same height are one step.
+    for s in inside:
+        height = y(s.watts)
+        if run_end is None or abs(s.t0 - run_end) > 1:
+            if run_end is not None:
+                area.append(f"V{POWER_H} Z")
+            area.append(f"M{x(s.t0)} {POWER_H} V{height} H{x(s.t1)}")
+            line.append(f"M{x(s.t0)} {height} H{x(s.t1)}")
+        elif height == last_y:
+            area[-1] = _extend(area[-1], x(s.t1))
+            line[-1] = _extend(line[-1], x(s.t1))
+        else:
+            area.append(f"V{height} H{x(s.t1)}")
+            line.append(f"V{height} H{x(s.t1)}")
+        run_end, last_y = s.t1, height
+    area.append(f"V{POWER_H} Z")
+
+    step = 500 if top <= 2000 else 1000
+    grid, refs = [], []
+    panel_top = y0
+    for watts in range(0, top + 1, step):
+        height = y(watts)
+        if watts:
+            grid.append(Mark("grid", height))
+        refs.append(Ref(panel_top + height, panel_top + height + 4, "", str(watts), "grid-label"))
+    mid = (peak.t0 + peak.t1) / 2
+    minute = (mid - t0) / 60
+    anchor = "start" if minute < span * 0.08 else "end" if minute > span * 0.92 else "middle"
+    label = Label(
+        _pct(minute, span),
+        round(max(panel_top + y(peak.watts) - 5, panel_top - 3), 2),
+        anchor,
+        f"peak {_watts(peak.watts)}",
+        "ext ext-power",
+    )
+    panel = PowerPanel(
+        y0, POWER_H, " ".join(area), " ".join(line), tuple(grid), tuple(refs), panel_top - 12
+    )
+    return panel, label
+
+
+def _peak(stretches: Sequence[Interval], start: dt.datetime, span: int) -> float:
+    t0 = start.timestamp()
+    return max((s.watts for s in stretches if t0 <= s.t0 < t0 + span * 60), default=0.0)
+
+
+def _extend(segment: str, x: float) -> str:
+    """The same step, ending at x: swap the last horizontal move."""
+    head, _, _ = segment.rpartition("H")
+    return f"{head}H{x}"
+
+
+def _slot_power(
+    stretches: Sequence[Interval], slots: Sequence[PlannedSlot]
+) -> list[tuple[float, float, float, bool] | None]:
+    """Per slot: kWh, seconds covered, euros of the priced part, whether any was priced.
+
+    None for a slot without readings."""
+    starts = [p.slot.start.timestamp() for p in slots]
+    found: list[list[float] | None] = [None] * len(slots)
+    for s in stretches:
+        i = bisect.bisect_right(starts, s.t0) - 1
+        if i < 0 or s.t0 >= slots[i].slot.end.timestamp():
+            continue
+        entry = found[i] = found[i] or [0.0, 0.0, 0.0, 0.0]
+        entry[0] += s.kwh
+        entry[1] += s.t1 - s.t0
+        if s.euros is not None:
+            entry[2] += s.euros
+            entry[3] = 1.0
+    return [None if e is None else (e[0], e[1], e[2], bool(e[3])) for e in found]
 
 
 def _pct(minute: float, span: float) -> str:
@@ -288,15 +428,23 @@ def build_chart(
     title: str,
     settings: Settings | None = None,
     history: Mapping[int, tuple[bool | None, str]] | None = None,
+    stretches: Sequence[Interval] | None = None,
 ) -> ChartModel:
     """One day's chart. `history` maps a quarter (see quarter_key) to the relay state
     and the reason logged at its last decision; with it, quarters before now show
-    what the relay did instead of what the rules would have planned."""
+    what the relay did instead of what the rules would have planned. `stretches` are
+    the energy readings (see power.intervals); a day with some gets the power band."""
     slots = plan.slots
     lines = plan.lines
     start, end = day_bounds(plan.day, tz)
     span = round((end - start).total_seconds() / 60)
     show_morning = settings is not None and settings.morning_enabled and lines is not None
+    rail_bottom = PLOT_H + GAP + RAIL_H
+    found = None
+    if stretches:
+        found = _power_panel(stretches, start, span, TOP + rail_bottom + POWER_GAP)
+    # The band sits under the rail: everything below it moves down by its height.
+    below = POWER_GAP + POWER_H if found else 0
 
     marks: list[Mark] = []
     band = None
@@ -399,7 +547,7 @@ def build_chart(
             labels.append(
                 Label(
                     _pct(hour * 60, span),
-                    TOP + PLOT_H + GAP + RAIL_H + 16,
+                    TOP + PLOT_H + GAP + RAIL_H + below + 16,
                     anchor,
                     f"{local:%H}",
                     "hour",
@@ -413,6 +561,10 @@ def build_chart(
             )
         )
 
+    if found is not None:
+        labels.append(found[1])
+
+    per_slot = _slot_power(stretches or (), slots) if found is not None else [None] * len(slots)
     hits, rows = [], []
     start_hit = 0
     found_start = False
@@ -432,6 +584,16 @@ def build_chart(
             title_text = f"{when}: {price}, planned {word.lower()}. {reason}"
         if not found_start and (planned.current or not planned.past):
             start_hit, found_start = i, True
+        used = cost = watts = ""
+        cost_row = used_row = ""
+        measured = per_slot[i]
+        if measured is not None:
+            kwh, covered, euros, priced = measured
+            average = kwh * 3600 * 1000 / covered if covered > 0 else 0.0
+            used = f"{_kwh(kwh)}, {_watts(average)} on average" if kwh else "Nothing used"
+            cost = ct(euros) if priced else ""
+            used_row, watts = f"{kwh:.2f}", f"{average:.0f}"
+            cost_row = _value(euros) if priced else ""
         hits.append(
             Hit(
                 _minutes(planned.slot.start, start),
@@ -441,6 +603,8 @@ def build_chart(
                 price,
                 word,
                 reason,
+                used,
+                cost,
             )
         )
         rows.append(
@@ -452,6 +616,9 @@ def build_chart(
                 reason,
                 planned.past,
                 planned.current,
+                used_row,
+                watts,
+                cost_row,
             )
         )
 
@@ -476,6 +643,9 @@ def build_chart(
             )
         if gaps:
             aria += " Part of the day has no price."
+        if found is not None:
+            peak = _watts(_peak(stretches or (), start, span))
+            aria += f" Under it, the power the boiler drew per minute, at most {peak}."
     return ChartModel(
         id=chart_id,
         title=title,
@@ -500,4 +670,8 @@ def build_chart(
         rows=tuple(rows),
         aria=aria,
         band_label=band_label,
+        power=found[0] if found else None,
+        hit_h=rail_bottom + below,
+        total_h=TOP + rail_bottom + below + AXIS_H,
+        axis_y=TOP + rail_bottom + below + 16,
     )

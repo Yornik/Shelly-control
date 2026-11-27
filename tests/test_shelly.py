@@ -12,6 +12,7 @@ from shelly_control.shelly import (
     ShellyHTTPError,
     ShellyTimeout,
     ShellyUnreachable,
+    SwitchStatus,
 )
 from shelly_control.transport import normalize_base_url
 
@@ -32,6 +33,17 @@ def test_switch_status(fake_shelly):
     assert status.source == "init"
     assert status.errors == ()
     assert status.timer_running is False
+
+
+def test_the_energy_counter_is_read_in_watt_hours(fake_shelly):
+    fake_shelly.energy_wh = 4321.25
+    assert ShellyClient(fake_shelly.url).get_switch_status(0).energy_wh == 4321.25
+
+
+@pytest.mark.parametrize("aenergy", [None, "x", {}, {"total": "many"}, {"total": True}])
+def test_a_missing_or_odd_energy_counter_is_none_not_an_error(aenergy):
+    reply = {"id": 0, "output": True, "apower": 5.0, "aenergy": aenergy}
+    assert SwitchStatus.from_reply(reply).energy_wh is None
 
 
 def test_protection_errors_are_read_and_bounded(fake_shelly):

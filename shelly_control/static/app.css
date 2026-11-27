@@ -178,6 +178,10 @@ a { color: var(--cobalt); }
   paint-order: stroke; stroke: var(--surface); stroke-width: 3px;
 }
 .hour { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+/* The power band: the area is the lighter step of the relay's hue, its top edge the full one. */
+.pwr-area { fill: var(--cobalt-past); fill-opacity: 0.45; }
+.pwr-line { fill: none; stroke: var(--cobalt); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.grid.base { stroke: var(--muted); }
 .hit { fill: transparent; }
 .hits { cursor: crosshair; }
 
@@ -193,6 +197,7 @@ a { color: var(--cobalt); }
 .readout .r-plan { display: block; font-weight: 650; }
 .readout .r-plan.on { color: var(--cobalt); }
 .readout .r-why { display: block; color: var(--ink-2); }
+.readout .r-used { display: block; font-variant-numeric: tabular-nums; }
 
 .key {
   display: flex; flex-wrap: wrap; gap: 6px 18px; list-style: none;
@@ -211,6 +216,40 @@ a { color: var(--cobalt); }
 .tableview .is-past { color: var(--muted); }
 .tableview .is-now td { font-weight: 650; }
 .tableview .plan-on { color: var(--cobalt); font-weight: 650; }
+
+/* What the boiler cost: three numbers, then a column per day. */
+.cost { padding-top: 22px; }
+.tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 10px; margin: 8px 0 14px;
+}
+.tile {
+  margin: 0; padding: 12px 14px; background: var(--surface);
+  border: 1px solid var(--hairline); border-radius: var(--radius-panel);
+}
+.tile dt { color: var(--ink-2); font-size: 0.875rem; font-weight: 650; }
+.tile .sub { color: var(--muted); font-weight: 400; }
+.tile dd { margin: 0; }
+.tile .big { font-size: 1.875rem; line-height: 1.2; font-weight: 750; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.tile .detail { color: var(--ink-2); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.tile .note { margin-top: 4px; color: var(--muted); font-size: 0.8125rem; }
+.costfig { margin: 0 0 6px; padding: 14px 14px 8px; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-panel); }
+.costfig figcaption { font-weight: 650; margin-bottom: 2px; }
+.costplot { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); }
+.cgutter { display: block; overflow: visible; }
+.cgutter text { font-family: var(--font); }
+.cols { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
+.cday { min-width: 0; border-radius: 4px; cursor: default; }
+.cday:hover, .cday:focus-visible { background: var(--page); }
+.cday:focus-visible { outline: 3px solid var(--cobalt); outline-offset: -1px; }
+.cday svg { display: block; }
+.cday .mid { overflow: visible; }
+.cday text { font-family: var(--font); }
+.col { fill: var(--cobalt); }
+.cday.today .col { fill: var(--cobalt-past); }
+.cval { font-size: 12px; font-weight: 650; fill: var(--ink); font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+.axis { font-size: 11px; fill: var(--muted); }
+.cday.today .axis { fill: var(--ink); font-weight: 650; }
+.cost-hint { max-width: 40rem; }
 
 /* Controls: plain sections, one hairline between them, not cards. */
 .sec { border-top: 1px solid var(--hairline); padding: 18px 0 10px; }
@@ -330,12 +369,13 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
       "banners banners"
       "hero side"
       "days side"
+      "cost side"
       "log side"
       "status side"
       ". side";
     /* The last row takes whatever the taller side column needs, so the left
        column never opens gaps between its sections. */
-    grid-template-rows: auto auto auto auto auto 1fr;
+    grid-template-rows: auto auto auto auto auto auto 1fr;
     column-gap: 56px; align-items: start;
   }
   .banners { grid-area: banners; }
@@ -343,6 +383,7 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
   .days { grid-area: days; }
   .side { grid-area: side; padding-top: 26px; }
   #override { border-top: 0; padding-top: 0; }
+  #cost { grid-area: cost; margin-top: 8px; }
   #log { grid-area: log; margin-top: 8px; }
   #status { grid-area: status; }
 }
@@ -351,6 +392,10 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
   .pin.on { fill: CanvasText; }
   .pin.on.done, .pin.off, .pin.unknown, .pin.off.done, .pin.unknown.done { fill: GrayText; }
   .price, .zero { stroke: CanvasText; }
+  .pwr-line { stroke: CanvasText; }
+  .pwr-area { fill: GrayText; }
+  .col, .cday.today .col { fill: CanvasText; }
+  .cday.today .col { fill: GrayText; }
   .band { fill: Canvas; stroke: GrayText; }
   .bandlabel { fill: CanvasText; stroke: Canvas; }
   .hatch-line, .mwin, .avg, .th { stroke: GrayText; }

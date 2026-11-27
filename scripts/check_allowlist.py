@@ -218,7 +218,9 @@ DYNAMIC_NAMES = frozenset(
 )
 DYNAMIC_ATTRIBUTES = frozenset({"system", "popen", "__setattr__", "__getattribute__", "__doc__"})
 
-FILE_SUFFIXES = frozenset({"json", "css", "js", "svg", "html", "woff2", "txt", "tmp", "png"})
+FILE_SUFFIXES = frozenset(
+    {"json", "jsonl", "css", "js", "svg", "html", "woff2", "txt", "tmp", "png"}
+)
 _RPC_METHOD = re.compile(r"[A-Za-z][A-Za-z0-9]*\.([A-Za-z][A-Za-z0-9]*)")
 _ALLOWED_METHODS = {method.casefold() for method in EXPECTED_METHODS}
 

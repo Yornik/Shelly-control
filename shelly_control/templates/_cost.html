@@ -1,0 +1,71 @@
+{#- What the boiler cost. Every value comes from cost.CostView; no style attributes. -#}
+{% macro cost_section(cost) -%}
+<section id="cost" class="sec cost" aria-labelledby="h-cost">
+  <h2 id="h-cost">What the boiler cost</h2>
+  {%- if cost.empty %}
+  <p class="help">{{ cost.empty }}</p>
+  {%- else %}
+  <dl class="tiles">
+    {%- for t in cost.tiles %}
+    <div class="tile">
+      <dt>{{ t.label }}{% if t.sub %} <span class="sub">{{ t.sub }}</span>{% endif %}</dt>
+      <dd class="big">{{ t.value }}</dd>
+      <dd class="detail">{{ t.detail }}</dd>
+      {%- if t.note %}
+      <dd class="note">{{ t.note }}</dd>
+      {%- endif %}
+    </div>
+    {%- endfor %}
+  </dl>
+  {%- if cost.chart %}
+  {%- set ch = cost.chart %}
+  <figure class="costfig" aria-labelledby="cap-cost">
+    <figcaption id="cap-cost">Cost per day, last 7 days</figcaption>
+    <div class="costplot" role="group" aria-roledescription="chart" aria-label="{{ ch.aria }}">
+      <svg class="cgutter" width="{{ ch.gutter_w }}" height="{{ ch.height }}" aria-hidden="true">
+        {%- for y, text in ch.gutter %}
+        <text class="grid-label" x="{{ ch.gutter_w - 8 }}" y="{{ y + 4 }}" text-anchor="end">{{ text }}</text>
+        {%- endfor %}
+      </svg>
+      <ul class="cols">
+        {%- for col in ch.columns %}
+        <li class="cday{% if col.is_today %} today{% endif %}" tabindex="0" aria-label="{{ col.text }}" data-text="{{ col.text }}" data-date="{{ col.date }}" data-euros="{{ col.value }}">
+          <svg width="100%" height="{{ ch.height }}" aria-hidden="true">
+            <title>{{ col.text }}</title>
+            {%- for y in ch.grid %}
+            <line class="grid" x1="0" x2="100%" y1="{{ y }}" y2="{{ y }}"/>
+            {%- endfor %}
+            <line class="grid base" x1="0" x2="100%" y1="{{ ch.base }}" y2="{{ ch.base }}"/>
+            <svg class="mid" x="50%" y="0" width="1" height="{{ ch.height }}" overflow="visible">
+              {%- if col.path %}
+              <path class="col" d="{{ col.path }}"/>
+              {%- endif %}
+              {%- if col.labelled %}
+              <text class="cval" x="0" y="{{ col.value_y }}" text-anchor="middle">{{ col.value }}</text>
+              {%- endif %}
+            </svg>
+            <text class="axis" x="50%" y="{{ ch.height - 6 }}" text-anchor="middle">{{ col.label }}</text>
+          </svg>
+        </li>
+        {%- endfor %}
+      </ul>
+      <div class="readout" aria-hidden="true" hidden></div>
+    </div>
+  </figure>
+  <p class="hint cost-hint">Euros are the energy used times the price of the quarter it was used in, so past days stay exact. Today's column is lighter because the day is not over.</p>
+  <details class="tableview">
+    <summary>Show the cost per day as a table</summary>
+    <table>
+      <caption class="sr-only">The boiler's use and cost per day</caption>
+      <thead><tr><th scope="col">Day</th><th scope="col">kWh</th><th scope="col">Euro</th><th scope="col">ct/kWh on average</th><th scope="col">Readings cover</th></tr></thead>
+      <tbody>
+        {%- for col in ch.columns %}
+        <tr{% if col.is_today %} class="is-now"{% endif %}><td>{{ col.date }}{% if col.is_today %} (so far){% endif %}</td><td>{{ col.kwh_cell }}</td><td>{{ col.euros_cell }}</td><td>{{ col.average_cell }}</td><td>{{ col.covered_cell }}</td></tr>
+        {%- endfor %}
+      </tbody>
+    </table>
+  </details>
+  {%- endif %}
+  {%- endif %}
+</section>
+{%- endmacro %}
