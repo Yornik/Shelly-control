@@ -500,7 +500,8 @@ def test_an_unreachable_device_is_retried_a_few_times(
         clock.now += 60
         triggers.append(controller.tick())
     assert triggers.count("retry") == 3
-    assert controller.snapshot().counters.device_read_errors["connection"] == 2 * 4
+    # Two tries per read: the start, three retries, and the minute reads between them.
+    assert controller.snapshot().counters.device_read_errors["connection"] == 2 * (1 + 3 + 3)
 
 
 def test_a_refused_password_backs_off(make_controller, fake_shelly, clock):
@@ -571,6 +572,7 @@ def test_the_loop_sleeps_until_the_next_thing_but_at_most_30_s(make_controller, 
     controller.tick()
     assert controller.seconds_until_due() == 30
     at_time(clock, 12, 14, 50)
+    assert controller.tick() is None  # the minute's read of the counter is due
     assert controller.seconds_until_due() == pytest.approx(15)
 
 
@@ -820,3 +822,60 @@ def test_without_a_hot_reading_the_guard_counts_from_the_first_recorded_power(
     again = make_controller(settings=LIVE)
     # Not the restart: a restart loop would put the guard off for ever.
     assert again.snapshot().last_hot.timestamp() == first
+
+
+# -- the energy record --------------------------------------------------------------------------
+
+
+def test_the_energy_counter_is_read_once_a_minute_with_the_price_in_force(
+    make_controller, fake_shelly, clock
+):
+    controller = make_controller(price_refresh=3600)
+    at_time(clock, 12, 0, 5)
+    assert controller.tick() == "start"
+    for _ in range(5):
+        fake_shelly.energy_wh += 17.5
+        clock.now += 60
+        controller.tick()
+    samples = controller.power.samples()
+    assert len(samples) == 6
+    assert [round(b.wh - a.wh, 1) for a, b in zip(samples, samples[1:], strict=False)] == [17.5] * 5
+    slot = controller.snapshot().book.slot_at(dt.datetime.fromtimestamp(clock.now, dt.UTC))
+    assert samples[-1].price == slot.total
+    assert controller.snapshot().power is controller.power
+
+
+def test_the_record_survives_a_restart(make_controller, fake_shelly, clock):
+    first = make_controller()
+    at_time(clock, 12, 0, 5)
+    first.tick()
+    clock.now += 60
+    first.tick()
+    restarted = make_controller()
+    assert len(restarted.power.samples()) == 2
+
+
+def test_a_device_without_an_energy_counter_leaves_no_record(make_controller, fake_shelly, clock):
+    fake_shelly.energy_wh = None
+    controller = make_controller()
+    at_time(clock, 12, 0, 5)
+    controller.tick()
+    clock.now += 60
+    controller.tick()
+    assert controller.power.samples() == ()
+
+
+def test_a_power_record_that_cannot_be_written_is_logged_once(
+    make_controller, fake_shelly, clock, caplog, tmp_path
+):
+    controller = make_controller()
+    (tmp_path / "blocker").write_text("a file, not a directory")
+    controller.power.path = tmp_path / "blocker" / "power.jsonl"
+    at_time(clock, 12, 0, 5)
+    with caplog.at_level("WARNING"):
+        controller.tick()
+        for _ in range(3):
+            clock.now += 60
+            controller.tick()
+    assert len([r for r in caplog.records if "power record" in r.getMessage()]) <= 1
+    assert len(controller.power.samples()) == 4

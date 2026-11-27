@@ -285,3 +285,110 @@ def test_the_past_rail_shows_what_the_relay_did():
         "10:00\N{EN DASH}10:15: 18.0 ct, was off."
     )
     assert 'data-plan="Was off"' in render(model)
+
+
+# -- the power band -----------------------------------------------------------------------------
+
+
+def power_chart(day=NORMAL_DAY, now=None, wh_per_minute=17.5, hours=(8, 10), price=0.2):
+    """A chart for `day` with one reading a minute, drawing 1050 W between the given hours."""
+    from shelly_control.power import Sample, intervals
+
+    now = now or at(day, 12, 7)
+    plan, _ = chart_for(day, now)
+    samples, wh = [], 0.0
+    t = at(day, 0).timestamp()
+    while t <= now.timestamp():
+        local = dt.datetime.fromtimestamp(t, TZ)
+        if hours[0] <= local.hour < hours[1]:
+            wh += wh_per_minute
+        samples.append(Sample(t, wh, price))
+        t += 60
+    stretches = intervals(samples)
+    scale = y_scale([plan])
+    return build_chart(
+        plan, scale, now, TZ, "today", "Today", Settings(), None, stretches
+    ), stretches
+
+
+def test_a_day_with_readings_gets_a_power_band_under_the_rail():
+    model, _ = power_chart()
+    assert model.power is not None
+    assert model.total_h == model.top + model.hit_h + 22
+    root = svg_of(render(model))
+    assert root.findall(f".//{SVG}path[@class='pwr-area']")
+    assert root.findall(f".//{SVG}path[@class='pwr-line']")
+    # The band is under the rail, the hour labels under the band.
+    assert model.power.y >= model.rail_y + model.rail_h
+    hour = next(label for label in model.labels if label.cls == "hour")
+    assert hour.y > model.power.y + model.power.h
+    assert model.hit_h == model.power.y - model.top + model.power.h
+
+
+def test_the_band_is_scaled_to_a_round_number_above_the_peak_and_names_the_peak():
+    model, _ = power_chart(wh_per_minute=17.5)  # 1050 W
+    assert [r.value for r in model.power.refs] == ["0", "500", "1000", "1500"]
+    peak = next(label for label in model.labels if label.cls.endswith("ext-power"))
+    assert peak.text == "peak 1050 W"
+    boosted, _ = power_chart(wh_per_minute=45.8)  # 2750 W
+    assert [r.value for r in boosted.power.refs][-1] == "3000"
+
+
+def test_a_day_without_readings_has_no_band():
+    _, model = chart_for(NORMAL_DAY, at(NORMAL_DAY, 12, 7))
+    assert model.power is None
+    assert "pwr-area" not in render(model)
+    assert model.hit_h == model.plot_h + 10 + model.rail_h
+
+
+def test_every_slot_says_what_the_boiler_used_and_what_it_cost():
+    model, _ = power_chart(hours=(8, 9), price=0.2)
+    by_time = {h.time: h for h in model.hits}
+    busy = by_time["08:00\N{EN DASH}08:15"]
+    assert busy.used == "0.26 kWh, 1050 W on average"
+    assert busy.cost == "5.3 ct"  # 0.2625 kWh at 20 ct
+    quiet = by_time["10:00\N{EN DASH}10:15"]
+    assert quiet.used == "Nothing used"
+    # Quarters after now have no readings, so nothing is said about them.
+    assert by_time["15:00\N{EN DASH}15:15"].used == ""
+    html = render(model)
+    assert 'data-used="0.26 kWh, 1050 W on average"' in html
+    assert 'data-cost="5.3 ct"' in html
+    row = next(r for r in model.rows if r.time == "08:00")
+    assert (row.used, row.watts, row.cost) == ("0.26", "1050", "5.3")
+    assert "kWh used" in html and "Average W" in html
+
+
+def test_the_power_band_adds_no_style_attributes_and_keeps_the_page_escaped():
+    model, _ = power_chart()
+    html = render(model)
+    assert " style=" not in html
+
+
+def test_the_band_keeps_a_gap_in_the_readings_a_gap():
+    from shelly_control.power import Sample, intervals
+
+    day = NORMAL_DAY
+    plan, _ = chart_for(day, at(day, 12, 7))
+    base = at(day, 6).timestamp()
+    samples = [Sample(base + i * 60, i * 17.5, 0.2) for i in range(10)]
+    samples += [Sample(base + 3600 + i * 60, 1000 + i * 17.5, 0.2) for i in range(10)]
+    model = build_chart(
+        plan,
+        y_scale([plan]),
+        at(day, 12, 7),
+        TZ,
+        "today",
+        "Today",
+        Settings(),
+        None,
+        intervals(samples),
+    )
+    # Two runs: two subpaths, so the line never bridges the hour without readings.
+    assert model.power.line.count("M") == 2
+    assert model.power.area.count("M") == 2
+
+
+def test_the_band_survives_the_long_day():
+    model, _ = power_chart(day=DST_END, now=at(DST_END, 12, 7))
+    assert model.span == 1500 and model.power is not None

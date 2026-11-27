@@ -37,8 +37,18 @@
           <rect class="{{ p.cls }}" x="{{ p.x }}" width="{{ p.width }}" y="{{ p.y }}" height="{{ p.height }}"/>
           {%- endfor %}
         </svg>
+        {%- if c.power %}
+        <svg y="{{ c.power.y }}" width="100%" height="{{ c.power.h }}" viewBox="0 0 {{ c.span }} {{ c.power.h }}" preserveAspectRatio="none">
+          {%- for g in c.power.grid %}
+          <line class="grid" x1="0" x2="{{ c.span }}" y1="{{ g.y }}" y2="{{ g.y }}"/>
+          {%- endfor %}
+          <line class="grid base" x1="0" x2="{{ c.span }}" y1="{{ c.power.h }}" y2="{{ c.power.h }}"/>
+          <path class="pwr-area" d="{{ c.power.area }}"/>
+          <path class="pwr-line" d="{{ c.power.line }}"/>
+        </svg>
+        {%- endif %}
         {%- if c.now_x %}
-        <line class="now" x1="{{ c.now_x }}" x2="{{ c.now_x }}" y1="{{ c.top - 4 }}" y2="{{ c.rail_y + c.rail_h }}"/>
+        <line class="now" x1="{{ c.now_x }}" x2="{{ c.now_x }}" y1="{{ c.top - 4 }}" y2="{{ c.top + c.hit_h }}"/>
         <text class="nowlabel" x="{{ c.now_x }}" y="{{ c.top - 8 }}" text-anchor="middle">now</text>
         {%- endif %}
         {%- if c.band_label %}
@@ -50,10 +60,10 @@
         {%- for l in c.labels %}
         <text class="{{ l.cls }}" x="{{ l.x }}" y="{{ l.y }}" text-anchor="{{ l.anchor }}">{{ l.text }}</text>
         {%- endfor %}
-        <line class="cross" x1="0" x2="0" y1="{{ c.top }}" y2="{{ c.rail_y + c.rail_h }}" visibility="hidden"/>
+        <line class="cross" x1="0" x2="0" y1="{{ c.top }}" y2="{{ c.top + c.hit_h }}" visibility="hidden"/>
         <svg class="hits" y="{{ c.top }}" width="100%" height="{{ c.hit_h }}" viewBox="0 0 {{ c.span }} {{ c.hit_h }}" preserveAspectRatio="none">
           {%- for h in c.hits %}
-          <rect class="hit" x="{{ h.x }}" width="{{ h.width }}" y="0" height="{{ c.hit_h }}" data-time="{{ h.time }}" data-price="{{ h.price }}" data-plan="{{ h.plan }}" data-why="{{ h.why }}"><title>{{ h.title }}</title></rect>
+          <rect class="hit" x="{{ h.x }}" width="{{ h.width }}" y="0" height="{{ c.hit_h }}" data-time="{{ h.time }}" data-price="{{ h.price }}" data-plan="{{ h.plan }}" data-why="{{ h.why }}"{% if h.used %} data-used="{{ h.used }}"{% endif %}{% if h.cost %} data-cost="{{ h.cost }}"{% endif %}><title>{{ h.title }}{% if h.used %} Used {{ h.used }}{% if h.cost %}, cost {{ h.cost }}{% endif %}.{% endif %}</title></rect>
           {%- endfor %}
         </svg>
       </svg>
@@ -62,6 +72,12 @@
     </div>
     <svg class="gutter" width="{{ c.gutter_w }}" height="{{ c.total_h }}" aria-hidden="true">
       <text class="unit" x="11" y="{{ c.top - 8 }}">ct/kWh</text>
+      {%- if c.power %}
+      <text class="unit" x="11" y="{{ c.power.unit_y }}">watt</text>
+      {%- for r in c.power.refs %}
+      <text class="{{ r.cls }}" x="11" y="{{ r.text_y }}">{{ r.value }}</text>
+      {%- endfor %}
+      {%- endif %}
       {%- for r in c.refs %}
       {%- if r.name %}
       <line class="lead {{ r.cls }}" x1="0" x2="7" y1="{{ r.lead_y }}" y2="{{ r.lead_y }}"/>
@@ -79,11 +95,11 @@
 <details class="tableview">
   <summary>Show {{ c.id }} as a table</summary>
   <table>
-    <caption class="sr-only">{{ c.title }}: price and plan per slot</caption>
-    <thead><tr><th scope="col">Quarter</th><th scope="col">ct/kWh</th><th scope="col">Plan</th><th scope="col">Why</th></tr></thead>
+    <caption class="sr-only">{{ c.title }}: price{% if c.power %}, use{% endif %} and plan per slot</caption>
+    <thead><tr><th scope="col">Quarter</th><th scope="col">ct/kWh</th>{% if c.power %}<th scope="col">kWh used</th><th scope="col">Average W</th><th scope="col">Cost ct</th>{% endif %}<th scope="col">Plan</th><th scope="col">Why</th></tr></thead>
     <tbody>
       {%- for r in c.rows %}
-      <tr class="{% if r.current %}is-now{% elif r.past %}is-past{% endif %}"{% if r.current %} aria-current="time"{% endif %}><td>{{ r.time }}{% if r.current %}<span class="sr-only">, now</span>{% endif %}</td><td>{{ r.price }}</td><td class="plan-{{ r.plan_cls }}">{{ r.plan }}</td><td>{{ r.why }}</td></tr>
+      <tr class="{% if r.current %}is-now{% elif r.past %}is-past{% endif %}"{% if r.current %} aria-current="time"{% endif %}><td>{{ r.time }}{% if r.current %}<span class="sr-only">, now</span>{% endif %}</td><td>{{ r.price }}</td>{% if c.power %}<td>{{ r.used or "–" }}</td><td>{{ r.watts or "–" }}</td><td>{{ r.cost or "–" }}</td>{% endif %}<td class="plan-{{ r.plan_cls }}">{{ r.plan }}</td><td>{{ r.why }}</td></tr>
       {%- endfor %}
     </tbody>
   </table>
@@ -114,6 +130,9 @@
   {%- endif %}
   {%- if key.morning %}
   <li><svg class="k" width="14" height="14" aria-hidden="true"><line class="mwin" x1="2" x2="2" y1="0" y2="14"/><line class="mwin" x1="12" x2="12" y1="0" y2="14"/></svg>Morning window</li>
+  {%- endif %}
+  {%- if key.power %}
+  <li><svg class="k" width="20" height="14" aria-hidden="true"><rect class="pwr-area" x="0" y="5" width="20" height="9"/><line class="pwr-line" x1="0" x2="20" y1="5" y2="5"/></svg>Power per minute</li>
   {%- endif %}
   {%- if key.nodata %}
   <li><svg class="k" width="20" height="14" aria-hidden="true"><rect class="nodata" x="0" y="0" width="20" height="14"/></svg>No price</li>
