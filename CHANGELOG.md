@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.1](https://github.com/Yornik/Shelly-control/compare/v1.5.0...v1.5.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* say a period in which the boiler used nothing cost nothing ([c9f366a](https://github.com/Yornik/Shelly-control/commit/c9f366a7e2e95c0957b9f1460b48541f68e49588))
+* say a period in which the boiler used nothing cost nothing ([e0d6ffb](https://github.com/Yornik/Shelly-control/commit/e0d6ffb6729441ac760066fa22aafe507b2192a6))
+
 ## [1.5.0](https://github.com/Yornik/Shelly-control/compare/v1.4.0...v1.5.0) (2026-11-27)
 
 
