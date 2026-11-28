@@ -126,3 +126,17 @@ def test_the_section_is_valid_markup_without_style_attributes():
 def test_text_from_the_data_is_escaped():
     cost = build_cost([], at(TODAY, 15), TZ)
     assert "<script" not in render_cost(cost)
+
+
+def test_a_period_in_which_nothing_was_used_costs_nothing_instead_of_no_price_known():
+    # An hour of readings with the boiler off: the counter does not move.
+    samples = [Sample(ts(TODAY, 8) + i * 60, 5000.0, None) for i in range(60)]
+    cost = build_cost(intervals(samples), at(TODAY, 9), TZ)
+    today = cost.tiles[0]
+    assert today.value == "\N{EURO SIGN}0.00"
+    assert today.detail == "Nothing used"
+    column = cost.chart.columns[-1]
+    assert column.text.startswith("Fri 27 Nov: nothing used.")
+    assert column.euros_cell == "0.00" and column.average_cell == "\N{EN DASH}"
+    # No readings at all is still a dash, not a zero.
+    assert build_cost([], at(TODAY, 9), TZ).tiles[0].value == "\N{EN DASH}"
