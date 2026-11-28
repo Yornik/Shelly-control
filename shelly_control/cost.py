@@ -159,6 +159,8 @@ def _tile(
     note = _coverage_note(t, expected)
     if t.covered == 0:
         return Tile(label, sub, "\N{EN DASH}", "No readings yet", note)
+    if _nothing_used(t):
+        return Tile(label, sub, euro(0), "Nothing used", note)
     if t.priced_kwh == 0:
         return Tile(label, sub, "\N{EN DASH}", f"{kwh(t.kwh)}, no price known", note)
     detail = f"{kwh(t.kwh)} at {ct(t.average_price)} per kWh on average"
@@ -167,6 +169,11 @@ def _tile(
         extra = f"{kwh(unpriced)} had no price and is not in the euros."
         note = f"{note} {extra}" if note else extra
     return Tile(label, sub, euro(t.euros), detail, note)
+
+
+def _nothing_used(t: Totals) -> bool:
+    """The readings cover time in which the boiler used no energy: it cost nothing."""
+    return t.covered > 0 and t.kwh < 0.005
 
 
 def _coverage_note(t: Totals, expected: float) -> str | None:
@@ -221,11 +228,14 @@ def build_cost(stretches: Sequence[Interval], now: dt.datetime, tz: ZoneInfo) ->
         is_today = day == today
         date_text = f"{day:%a} {day.day} {day:%b}"
         label = "Today" if is_today else f"{day:%a}"
-        priced = t.priced_kwh > 0
+        idle = _nothing_used(t)
+        priced = t.priced_kwh > 0 or idle
         height = round(t.euros / top * PLOT_H, 2) if priced else 0.0
         average = t.average_price
         if t.covered == 0:
             text = f"{date_text}: no readings."
+        elif idle:
+            text = f"{date_text}: nothing used."
         elif not priced:
             text = f"{date_text}: {kwh(t.kwh)}, no price known."
         else:
